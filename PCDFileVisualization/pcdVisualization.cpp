@@ -59,8 +59,8 @@ int main(int argc, char **argv){
 	ne.setRadiusSearch(0.1);
 	ne.compute(*cloudNormals2);
 
-	visualization::PCLVisuializer::Ptr viewer;
-	viewer = visual(sourceCloud);
+	visualization::PCLVisualizer::Ptr viewer;
+	viewer = visualXYZ(sourceCloud);
 	while(!viewer->wasStopped()){
 		viewer->spinOnce(100);
 		this_thread::sleep_for(std::chrono::milliseconds(100));
