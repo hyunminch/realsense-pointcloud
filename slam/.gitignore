@@ -281,3 +281,5 @@ _deps
 *-prefix/
 
 # End of https://www.gitignore.io/api/c++,vim,linux,clion,clion+all,clion+iml
+
+slam

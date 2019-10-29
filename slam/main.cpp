@@ -171,23 +171,18 @@ int main(int argc, char * argv[]) try {
 }
 
 // Registers the state variable and callbacks to allow mouse control of the pointcloud
-void register_glfw_callbacks(window& app, state& app_state)
-{
-    app.on_left_mouse = [&](bool pressed)
-    {
+void register_glfw_callbacks(window& app, state& app_state) {
+    app.on_left_mouse = [&](bool pressed) {
         app_state.ml = pressed;
     };
 
-    app.on_mouse_scroll = [&](double xoffset, double yoffset)
-    {
+    app.on_mouse_scroll = [&](double xoffset, double yoffset) {
         app_state.offset_x += static_cast<float>(xoffset);
         app_state.offset_y += static_cast<float>(yoffset);
     };
 
-    app.on_mouse_move = [&](double x, double y)
-    {
-        if (app_state.ml)
-        {
+    app.on_mouse_move = [&](double x, double y) {
+        if (app_state.ml) {
             app_state.yaw -= (x - app_state.last_x);
             app_state.yaw = std::max(app_state.yaw, -120.0);
             app_state.yaw = std::min(app_state.yaw, +120.0);
@@ -199,17 +194,15 @@ void register_glfw_callbacks(window& app, state& app_state)
         app_state.last_y = y;
     };
 
-    app.on_key_release = [&](int key)
-    {
-        if (key == 32) // Escape
-        {
+    app.on_key_release = [&](int key) {
+        // Escape
+        if (key == 32) {
             app_state.yaw = app_state.pitch = 0; app_state.offset_x = app_state.offset_y = 0.0;
         }
     };
 }
 
-void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points)
-{
+void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points) {
     // OpenGL commands that prep screen for the pointcloud
     glPopMatrix();
     glPushAttrib(GL_ALL_ATTRIB_BITS);
@@ -237,8 +230,7 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
 
     int color = 0;
 
-    for (auto&& pc : points)
-    {
+    for (auto&& pc : points) {
         glBegin(GL_POINTS);
 
         /* this segment actually prints the pointcloud */
