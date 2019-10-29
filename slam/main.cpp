@@ -10,7 +10,10 @@
 #include <pcl/registration/icp_nl.h>
 #include <pcl/registration/transforms.h>
 #include <pcl/visualization/pcl_visualizer.h>
+
 #include <pcl/visualization/cloud_viewer.h>
+
+#include <pcl/io/pcd_io.h>
 
 #include <iostream>
 #include <vector>
@@ -120,7 +123,6 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
         auto pcl = convert_to_pcl(points, color);
         clouds.push_back(pcl);
     }
-
     return clouds;
 }
 
@@ -193,6 +195,8 @@ int main(int argc, char * argv[]) try {
         while (app) {
             draw_pointcloud(app, app_state, {registration_result});
         }
+		pcl::io::savePCDFileASCII("capture.pcd", *registration_result);
+
     } else
         std::cout << "Has not converged!" << std::endl;
 
