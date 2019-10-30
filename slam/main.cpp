@@ -4,6 +4,7 @@
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/filters/passthrough.h>
+#include <pcl/filters/approximate_voxel_grid.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/registration/icp.h>
 #include <pcl/registration/ndt.h>
@@ -29,6 +30,8 @@ struct state {
 typedef pcl::PointXYZRGB rgb_cloud;
 typedef pcl::PointCloud<rgb_cloud> point_cloud;
 typedef point_cloud::Ptr cloud_pointer;
+typedef pcl::PointXYZRGBNormal rgb_normal_cloud;
+typedef pcl::PointCloud<rgb_normal_cloud> point_cloud_with_normals;
 
 using pcl_ptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 
@@ -122,86 +125,153 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
 
         auto pcl = convert_to_pcl(points, color);
         clouds.push_back(pcl);
+        sleep(2);
     }
     return clouds;
+}
+
+void pairAlign(
+        const cloud_pointer cloud_src,
+        const cloud_pointer cloud_tgt,
+        cloud_pointer output,
+        Eigen::Matrix4f &final_transform,
+        bool downsample=false) {
+    cloud_pointer src(new point_cloud);
+    cloud_pointer tgt(new point_cloud);
+    pcl::VoxelGrid<rgb_cloud> grid;
+    if (downsample) {
+        grid.setLeafSize(0.2, 0.2, 0.2);
+
+        grid.setInputCloud(cloud_src);
+        grid.filter(*src);
+
+        grid.setInputCloud(cloud_tgt);
+        grid.filter(*tgt);
+    } else {
+        src = cloud_src;
+        tgt = cloud_tgt;
+    }
+
+    point_cloud_with_normals::Ptr points_with_normals_src(new point_cloud_with_normals);
+    point_cloud_with_normals::Ptr points_with_normals_tgt(new point_cloud_with_normals);
+
+    pcl::NormalEstimation<rgb_cloud, rgb_normal_cloud> norm_est;
+    pcl::search::KdTree<rgb_cloud>::Ptr tree (new pcl::search::KdTree<rgb_cloud>());
+    norm_est.setSearchMethod(tree);
+    norm_est.setKSearch(30);
+
+    norm_est.setInputCloud(src);
+    norm_est.compute(*points_with_normals_src);
+    pcl::copyPointCloud(*src, *points_with_normals_src);
+
+    norm_est.setInputCloud(src);
+    norm_est.compute(*points_with_normals_tgt);
+    pcl::copyPointCloud(*tgt, *points_with_normals_tgt);
+
+    pcl::IterativeClosestPointNonLinear<rgb_normal_cloud, rgb_normal_cloud> icp;
+    icp.setMaxCorrespondenceDistance(0.05);
+    icp.setTransformationEpsilon(1e-8);
+    icp.setEuclideanFitnessEpsilon(1);
+    icp.setInputSource(points_with_normals_src);
+    icp.setInputTarget(points_with_normals_tgt);
+    icp.setMaximumIterations(20);
+    icp.align(*points_with_normals_src);
+    Eigen::Matrix4f Ti = icp.getFinalTransformation();
+
+    // Get the transformation from target to source
+    Eigen::Matrix4f targetToSource = Ti.inverse();
+
+    //
+    // Transform target back in source frame
+    pcl::transformPointCloud (*cloud_tgt, *output, targetToSource);
+
+    // add the source to the transformed target
+    *output += *cloud_src;
+
+    final_transform = targetToSource;
 }
 
 void register_glfw_callbacks(window& app, state& app_state);
 
 int main(int argc, char * argv[]) try {
+    int nr_frames = 10;
+
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
     // Start streaming with default recommended configuration
     pipe.start();
 
-    auto clouds = get_clouds(pipe, 2);
+    auto clouds = get_clouds(pipe, nr_frames);
 
-    cloud_pointer registration_result(new point_cloud);
-    
-    // Below is the ICP implementation.
-    /*
-    pcl::IterativeClosestPoint<rgb_cloud, rgb_cloud> icp;
+    // cloud_pointer to_register = clouds[0];
+//    cloud_pointer filtered_cloud(new point_cloud);
+//    cloud_pointer registration_result = clouds[0];
+//
+//    pcl::ApproximateVoxelGrid<rgb_cloud> approximate_voxel_filter;
+//    pcl::IterativeClosestPoint<rgb_cloud, rgb_cloud> icp;
+//    int cnt_success = 0;
+////     Filtering input scan to roughly 10% of original size to increase speed of registration.
+//    for (int i = 1; i < nr_frames; i++) {
+//        cloud_pointer temp(new point_cloud);
+//        std::cout << "Unfiltered cloud contains " << registration_result->size()
+//                  << " data points from temp." << std::endl;
+//        approximate_voxel_filter.setLeafSize(0.2, 0.2, 0.2);
+//        approximate_voxel_filter.setInputCloud(registration_result);
+//        approximate_voxel_filter.filter(*filtered_cloud);
+//        std::cout << "Filtered cloud contains " << filtered_cloud->size()
+//                  << " data points from temp." << std::endl;
+//
+//        icp.setMaximumIterations(20);
+//        icp.setMaxCorrespondenceDistance(0.05);
+//        icp.setTransformationEpsilon(1e-8);
+//        icp.setEuclideanFitnessEpsilon(1);
+//        icp.setInputSource(filtered_cloud);
+//        icp.setInputTarget(clouds[i]);
+//        icp.align(*temp);
+//
+//        if (icp.hasConverged()) {
+//            cnt_success++;
+//            std::cout << "Converged "  << i << "!" << std::endl;
+//            pcl::transformPointCloud(*registration_result, *temp, icp.getFinalTransformation());
+//            // *temp += *clouds[i];
+//            registration_result = temp;
+//        } else {
+//            std::cout << "Point clouds did not converge. "
+//                      << "Attempting next iteration with old cloud." << std::endl;
+//        }
+//    }
+    cloud_pointer pairwise_result(new point_cloud);
+    cloud_pointer sum(new point_cloud);
+    Eigen::Matrix4f GlobalTransform = Eigen::Matrix4f::Identity(), pairTransform;
+    for (int i = 1; i < nr_frames; i++) {
+        std::cout << "result size: " << pairwise_result->size() << std:: endl;
+        std::cout << "on " << i << std::endl;
+        cloud_pointer temp(new point_cloud);
+        pairAlign(clouds[i - 1], clouds[i], temp, pairTransform, true);
 
-    icp.setMaximumIterations(5);
-    icp.setMaxCorrespondenceDistance(0.05);
-    icp.setTransformationEpsilon(1e-8);
-    icp.setEuclideanFitnessEpsilon(1);
-    icp.setInputSource(clouds[0]);
-    icp.setInputTarget(clouds[1]);
-    icp.align(*registration_result);
+        //transform current pair into the global transform
+        pcl::transformPointCloud (*temp, *pairwise_result, GlobalTransform);
 
-    if (icp.hasConverged()) {
-        std::cout << "Converged!" << std::endl;
+        //update the global transform
+        GlobalTransform *= pairTransform;
 
-        // Create a simple OpenGL window for rendering:
-        window app(1280, 720, "RealSense PCL Pointcloud Example");
-        // Construct an object to manage view state
-        state app_state;
-        // register callbacks to allow manipulation of the pointcloud
-        register_glfw_callbacks(app, app_state);
+        *sum += *pairwise_result;
+    }
 
-        while (app) {
-            draw_pointcloud(app, app_state, {registration_result});
-        }
-    } 
-    */
-    
-    // Below is the NDT implementation.
-		pcl::io::savePCDFileASCII("inputPCDFile/pcd1.pcd", *clouds[0]);
-		pcl::io::savePCDFileASCII("inputPCDFile/pcd2.pcd", *clouds[1]);
-    pcl::NormalDistributionsTransform<rgb_cloud, rgb_cloud> ndt;
+//    std::cout << "converging succeeded " << cnt_success << " times." << std::endl;
 
-    ndt.setTransformationEpsilon(0.01);
-    ndt.setStepSize(0.1);
-    ndt.setResolution(1.0);
-    ndt.setMaximumIterations(35);
-    ndt.setInputSource(clouds[0]);
-    ndt.setInputTarget(clouds[1]);
+//    pcl::io::savePCDFileASCII("capture.pcd", *temp);
 
-    Eigen::AngleAxisf init_rotation (0.6931, Eigen::Vector3f::UnitZ ());
-    Eigen::Translation3f init_translation (1.79387, 0.720047, 0);
-    Eigen::Matrix4f init_guess = (init_translation * init_rotation).matrix ();
+    // Create a simple OpenGL window for rendering:
+    window app(1280, 720, "RealSense PCL Pointcloud Example");
+    // Construct an object to manage view state
+    state app_state;
+    // register callbacks to allow manipulation of the pointcloud
+    register_glfw_callbacks(app, app_state);
 
-    ndt.align(*registration_result, init_guess); 
-
-		std::cout << "ndt align "<<std::endl;
-    if (ndt.hasConverged()) {
-        std::cout << "NDT has converged!" << std::endl;
-        
-        // Create a simple OpenGL window for rendering:
-        window app(1280, 720, "RealSense PCL Pointcloud Example");
-        // Construct an object to manage view state
-        state app_state;
-        // register callbacks to allow manipulation of the pointcloud
-        register_glfw_callbacks(app, app_state);
-
-        while (app) {
-            draw_pointcloud(app, app_state, {registration_result});
-        }
-		pcl::io::savePCDFileASCII("capture.pcd", *registration_result);
-
-    } else
-        std::cout << "Has not converged!" << std::endl;
+    while (app) {
+        draw_pointcloud(app, app_state, {sum});
+    }
 
     return EXIT_SUCCESS;
 } catch (const rs2::error & e) {
