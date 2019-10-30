@@ -167,6 +167,8 @@ int main(int argc, char * argv[]) try {
     */
     
     // Below is the NDT implementation.
+		pcl::io::savePCDFileASCII("inputPCDFile/pcd1.pcd", *clouds[0]);
+		pcl::io::savePCDFileASCII("inputPCDFile/pcd2.pcd", *clouds[1]);
     pcl::NormalDistributionsTransform<rgb_cloud, rgb_cloud> ndt;
 
     ndt.setTransformationEpsilon(0.01);
@@ -181,7 +183,8 @@ int main(int argc, char * argv[]) try {
     Eigen::Matrix4f init_guess = (init_translation * init_rotation).matrix ();
 
     ndt.align(*registration_result, init_guess); 
-    
+
+		std::cout << "ndt align "<<std::endl;
     if (ndt.hasConverged()) {
         std::cout << "NDT has converged!" << std::endl;
         
