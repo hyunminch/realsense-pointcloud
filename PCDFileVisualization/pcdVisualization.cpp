@@ -50,17 +50,22 @@ int main(int argc, char **argv){
 	sourceCloud->height = 1;
 	NormalEstimation<PointXYZRGB, Normal> ne;
 	ne.setInputCloud(sourceCloud);
+	cout << "set input cloud"<<endl;
 	search::KdTree<PointXYZRGB>::Ptr tree(new search::KdTree<PointXYZRGB>());
 	ne.setSearchMethod(tree);
+	cout << "set search method"<<endl;
 	PointCloud<pcl::Normal>::Ptr cloudNormals1(new PointCloud<pcl::Normal>);
 	ne.setRadiusSearch(0.05);
 	ne.compute(*cloudNormals1);
+	cout << "compute"<< endl;
 	PointCloud<Normal>::Ptr cloudNormals2(new PointCloud<Normal>);
 	ne.setRadiusSearch(0.1);
 	ne.compute(*cloudNormals2);
 
-	visualization::PCLVisuializer::Ptr viewer;
-	viewer = visual(sourceCloud);
+	cout << "compute 2"<<endl;
+	visualization::PCLVisualizer::Ptr viewer;
+	viewer = visualXYZRGB(sourceCloud);
+	cout << "Viewer loading"<<endl;
 	while(!viewer->wasStopped()){
 		viewer->spinOnce(100);
 		this_thread::sleep_for(std::chrono::milliseconds(100));
