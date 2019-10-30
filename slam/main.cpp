@@ -6,6 +6,7 @@
 #include <pcl/filters/passthrough.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/registration/icp.h>
+#include <pcl/registration/ndt.h>
 #include <pcl/registration/icp_nl.h>
 #include <pcl/registration/transforms.h>
 #include <pcl/visualization/pcl_visualizer.h>
@@ -136,7 +137,9 @@ int main(int argc, char * argv[]) try {
     auto clouds = get_clouds(pipe, 2);
 
     cloud_pointer registration_result(new point_cloud);
-
+    
+    // Below is the ICP implementation.
+    /*
     pcl::IterativeClosestPoint<rgb_cloud, rgb_cloud> icp;
 
     icp.setMaximumIterations(5);
@@ -160,7 +163,40 @@ int main(int argc, char * argv[]) try {
         while (app) {
             draw_pointcloud(app, app_state, {registration_result});
         }
-				pcl::io::savePCDFileASCII("capture.pcd", *registration_result);
+    } 
+    */
+    
+    // Below is the NDT implementation.
+    pcl::NormalDistributionsTransform<rgb_cloud, rgb_cloud> ndt;
+
+    ndt.setTransformationEpsilon(0.01);
+    ndt.setStepSize(0.1);
+    ndt.setResolution(1.0);
+    ndt.setMaximumIterations(35);
+    ndt.setInputSource(clouds[0]);
+    ndt.setInputTarget(clouds[1]);
+
+    Eigen::AngleAxisf init_rotation (0.6931, Eigen::Vector3f::UnitZ ());
+    Eigen::Translation3f init_translation (1.79387, 0.720047, 0);
+    Eigen::Matrix4f init_guess = (init_translation * init_rotation).matrix ();
+
+    ndt.align(*registration_result, init_guess); 
+    
+    if (ndt.hasConverged()) {
+        std::cout << "NDT has converged!" << std::endl;
+        
+        // Create a simple OpenGL window for rendering:
+        window app(1280, 720, "RealSense PCL Pointcloud Example");
+        // Construct an object to manage view state
+        state app_state;
+        // register callbacks to allow manipulation of the pointcloud
+        register_glfw_callbacks(app, app_state);
+
+        while (app) {
+            draw_pointcloud(app, app_state, {registration_result});
+        }
+		pcl::io::savePCDFileASCII("capture.pcd", *registration_result);
+
     } else
         std::cout << "Has not converged!" << std::endl;
 
