@@ -113,6 +113,9 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
     rs2::pointcloud pc;
     rs2::points points;
 
+    pcl::StatisticalOutlierRemoval<rgb_cloud> sor;
+    sor.setMeanK(50);
+    sor.setStddevMulThresh(1.5);
     for (int frame = 0; frame < nr_frames; frame++) {
         std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
 
@@ -134,7 +137,13 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
         points = pc.calculate(depth);
 
         auto pcl = convert_to_pcl(points, color, 0.5, 1.5);
-        clouds.push_back(pcl);
+
+        cloud_pointer filtered(new point_cloud);
+        sor.setInputCloud(pcl);
+        sor.filter(*filtered);
+        std::cout << "filtered" << std::endl;
+
+        clouds.push_back(filtered);
 
         std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
 
@@ -202,7 +211,6 @@ void pairAlign(
 
     // add the source to the transformed target
     *registration_result += *cloud_src;
-    
 
     final_transform = targetToSource;
 }
@@ -259,23 +267,14 @@ int main(int argc, char * argv[]) try {
     cloud_pointer pairwise_result(new point_cloud);
     cloud_pointer sum(new point_cloud);
     Eigen::Matrix4f GlobalTransform = Eigen::Matrix4f::Identity(), pairTransform;
-    pcl::StatisticalOutlierRemoval<rgb_cloud> sor;
-    sor.setMeanK(50);
-    sor.setStddevMulThresh(1.5);
+    
     for (int i = 1; i < nr_frames; i++) {
         std::cout << "result size: " << pairwise_result->size() << std:: endl;
         std::cout << "on " << i << std::endl;
 
         cloud_pointer temp(new point_cloud);
-        cloud_pointer cloud_src(new point_cloud);
-        cloud_pointer cloud_tgt(new point_cloud);
 
-        sor.setInputCloud(clouds[i - 1]);
-        sor.filter(*cloud_src);
-        sor.setInputCloud(clouds[i]);
-        sor.filter(*cloud_tgt);
-
-        pairAlign(cloud_src, cloud_tgt, temp, pairTransform, true);
+        pairAlign(clouds[i - 1], clouds[i], temp, pairTransform, true);
 
         //transform current pair into the global transform
         pcl::transformPointCloud (*temp, *pairwise_result, GlobalTransform);
