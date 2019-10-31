@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <string>
 
+#include "./FBRegistration.hpp"
+
 struct state {
     state() : yaw(0.0), pitch(0.0), last_x(0.0), last_y(0.0),
               ml(false), offset_x(0.0f), offset_y(0.0f) {}
@@ -33,6 +35,10 @@ typedef pcl::PointCloud<rgb_cloud> point_cloud;
 typedef point_cloud::Ptr cloud_pointer;
 typedef pcl::PointXYZRGBNormal rgb_normal_cloud;
 typedef pcl::PointCloud<rgb_normal_cloud> point_cloud_with_normals;
+
+typedef pcl::PointXYZI point_i;
+typedef pcl::PointCloud<point_i> point_i_cloud;
+typedef point_i_cloud::Ptr cloud_i_pointer;
 
 using pcl_ptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 
@@ -107,7 +113,7 @@ cloud_pointer filter_pcl(cloud_pointer cloud) {
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
     pass.filter(*cloud_pass_through);
-    pass.setFilterLimits(0.5, 1.5);
+    pass.setFilterLimits(0.2, 2.5);
 
     // 2. Applies sor filter
     pcl::StatisticalOutlierRemoval<rgb_cloud> sor;
@@ -124,7 +130,6 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
 
     rs2::pointcloud pc;
     rs2::points points;
-
 
     for (int frame = 0; frame < nr_frames; frame++) {
         std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
@@ -179,31 +184,31 @@ void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cl
         tgt = cloud_tgt;
     }
 
-    point_cloud_with_normals::Ptr points_with_normals_src(new point_cloud_with_normals);
-    point_cloud_with_normals::Ptr points_with_normals_tgt(new point_cloud_with_normals);
+    // point_cloud_with_normals::Ptr points_with_normals_src(new point_cloud_with_normals);
+    // point_cloud_with_normals::Ptr points_with_normals_tgt(new point_cloud_with_normals);
 
-    pcl::NormalEstimation<rgb_cloud, rgb_normal_cloud> norm_est;
-    pcl::search::KdTree<rgb_cloud>::Ptr tree(new pcl::search::KdTree<rgb_cloud>());
-    norm_est.setSearchMethod(tree);
-    norm_est.setKSearch(30);
+    // pcl::NormalEstimation<rgb_cloud, rgb_normal_cloud> norm_est;
+    // pcl::search::KdTree<rgb_cloud>::Ptr tree(new pcl::search::KdTree<rgb_cloud>());
+    // norm_est.setSearchMethod(tree);
+    // norm_est.setKSearch(30);
 
-    norm_est.setInputCloud(src);
-    norm_est.compute(*points_with_normals_src);
-    pcl::copyPointCloud(*src, *points_with_normals_src);
+    // norm_est.setInputCloud(src);
+    // norm_est.compute(*points_with_normals_src);
+    // pcl::copyPointCloud(*src, *points_with_normals_src);
 
-    norm_est.setInputCloud(src);
-    norm_est.compute(*points_with_normals_tgt);
-    pcl::copyPointCloud(*tgt, *points_with_normals_tgt);
+    // norm_est.setInputCloud(src);
+    // norm_est.compute(*points_with_normals_tgt);
+    // pcl::copyPointCloud(*tgt, *points_with_normals_tgt);
 
-    pcl::IterativeClosestPointNonLinear<rgb_normal_cloud, rgb_normal_cloud> icp;
+    pcl::IterativeClosestPoint<rgb_cloud, rgb_cloud> icp;
     icp.setMaxCorrespondenceDistance(0.05);
     icp.setTransformationEpsilon(1e-8);
     icp.setEuclideanFitnessEpsilon(1);
-    icp.setInputSource(points_with_normals_src);
-    icp.setInputTarget(points_with_normals_tgt);
+    icp.setInputSource(src);
+    icp.setInputTarget(tgt);
 
     icp.setMaximumIterations(20);
-    icp.align(*points_with_normals_src);
+    icp.align(*src);
     Eigen::Matrix4f Ti = icp.getFinalTransformation();
 
     // Get the transformation from target to source
@@ -216,6 +221,108 @@ void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cl
     *output += *cloud_src;
 
     final_transform = target_to_source;
+}
+
+void detect_keypoints(cloud_pointer input, cloud_i_pointer keypoints) {
+    pcl::Keypoint<rgb_cloud, point_i>::Ptr keypoint_detector;
+
+    pcl::HarrisKeyPoint3D<rgb_cloud, point_i>* harris3D =
+        new pcl::HarrisKeyPoint3D<rgb_cloud, point_i>(
+            pcl::HarrisKeyPoint3D<rgb_cloud, point_i>::Harris
+        );
+
+    harris3D->setNonMaxSuppression(true);
+    harris3D->setRadius(0.01);
+    harris3D->setRadiusSearch(0.01);
+
+    keypoint_detector.reset(harris3D);
+    harris3D->setMethod(pcl::HarrisKeypoint3D<rgb_cloud, point_i>::Harris);
+
+    keypoint_detector.setInputCloud(input);
+    keypoint_detector.setSearchSurface(input);
+    keypoint_detector.compute(*keypoints);
+}
+
+void extract_descriptors(cloud_pointer input, cloud_i_pointer keypoints, pcl::PointCloud<pcl::FPFHSignature33> features) {
+    pcl::Feature<point_cloud, pcl::FPFHSignature33>::Ptr feature_extractor(new pcl::FPFHEstimationOMP<point_cloud, pcl::Normal, pcl::FPFHSignature33>);
+    feature_extractor->setSearchMethod(pcl::search::Search<point_cloud>::Ptr(new pcl::search::KdTree<point_cloud>));
+    feature_extractor->setRadiusSearch(0.05);
+
+    cloud_pointer kpts(new point_cloud);
+    kpts->points.resize(keypoints->points.size());
+
+    pcl::copyPointCloud(*keypoints, *kpts);
+
+    pcl::FeatureFromNormals<point_cloud, pcl::Normal, pcl::FPFHSignature33>::Ptr feature_from_normals = boost::dynamic_pointer_cast<pcl::FeatureFromNormals<point_cloud, pcl::Normal, pcl::FPFHSignature33>(feature_extractor);
+
+    feature_extractor->setSearchSurface(input);
+    feature_extractor->setInputCloud(kpts);
+
+    if (feature_from_normals) {
+        std::cout << "normal estimation..." << std::flush;
+        pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+        pcl::NormalEstimation<point_cloud, pcl::Normal> normal_estimation;
+        normal_estimation.setSearchMethod(pcl::search::Search<point_cloud>::Ptr (new pcl::search::KdTree<point_cloud>));
+        normal_estimation.setRadiusSearch(0.01);
+        normal_estimation.setInputCloud(input);
+        normal_estimation.compute(*normals);
+        feature_from_normals->setInputNormals(normals);
+        std::coud << "OK" << std::endl;
+    }
+
+    std::cout << "descriptor extraction..." << std::flush;
+    feature_extractor->compute(*features);
+    std::cout << "OK" << std::endl;
+}
+
+void find_correspondences(pcl::PointCloud<pcl::FPFHSignature33>::Ptr source, pcl::PointCloud<pcl::FPFHSignature33>::Ptr target, std::vector<int>& correspondences) {
+    std::cout << "correspondence assignment..." << std::flush;
+    correspondences.resize(source->size());
+
+    pcl::KdTreeFLANN<pcl::FPFHSignature33> descriptor_kdtree;
+    descriptor_kdtree.setInputCloud(target);
+
+    const int k = 1;
+    std::vector<int> k_indices(k);
+    std::vector<float> k_squared_distances(k);
+
+    for (std::size_t i = 0; i < source->size(); i++) {
+        descriptor_kdtree.nearestKSearch(*source, i, k, k_indices, k_squared_distances);
+        correspondences[i] = k_indices[0];
+    }
+    std::cout << "OK" << std::endl;
+}
+
+void run_feature_based_registration() {
+    pcl::Keypoint<rgb_cloud, point_i>::Ptr keypoint_detector;
+
+    pcl::HarrisKeyPoint3D<rgb_cloud, point_i>* harris3D =
+        new pcl::HarrisKeyPoint3D<rgb_cloud, point_i>(
+            pcl::HarrisKeyPoint3D<rgb_cloud, point_i>::Harris
+        );
+
+    harris3D->setNonMaxSuppression(true);
+    harris3D->setRadius(0.01);
+    harris3D->setRadiusSearch(0.01);
+
+    keypoint_detector.reset(harris3D);
+    harris3D->setMethod(pcl::HarrisKeypoint3D<rgb_cloud, point_i>::Harris);
+
+    pcl::Keypoint<rgb_cloud, point_i>::Ptr keypoint_detector;
+
+    pcl::HarrisKeyPoint3D<rgb_cloud, point_i>* harris3D =
+        new pcl::HarrisKeyPoint3D<rgb_cloud, point_i>(
+            pcl::HarrisKeyPoint3D<rgb_cloud, point_i>::Harris
+        );
+
+    harris3D->setNonMaxSuppression(true);
+    harris3D->setRadius(0.01);
+    harris3D->setRadiusSearch(0.01);
+
+    keypoint_detector.reset(harris3D);
+    harris3D->setMethod(pcl::HarrisKeypoint3D<rgb_cloud, point_i>::Harris);
+
+
 }
 
 void register_glfw_callbacks(window& app, state& app_state);
