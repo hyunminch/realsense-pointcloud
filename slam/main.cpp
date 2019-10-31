@@ -60,7 +60,7 @@ std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coo
     return { nt1, nt2, nt3 };
 }
 
-cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
+cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color, double z_min = 0.0, double z_max = 5.0) {
     cloud_pointer cloud(new point_cloud);
 
     std::tuple<uint8_t, uint8_t, uint8_t> _rgb_texture;
@@ -70,26 +70,37 @@ cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& 
     cloud->width  = static_cast<uint32_t>(sp.width());
     cloud->height = static_cast<uint32_t>(sp.height());
     cloud->is_dense = false;
-    cloud->points.resize(points.size());
+
+    int nr_filtered = 0;
+    for (int i = 0; i < (int)points.size(); i++) {
+        if (z_min <= cloud->points[i].z and cloud->points[i].z <= z_max)
+            nr_filtered++;
+    }
+
+    cloud->points.resize(nr_filtered);
 
     auto texture_coordinates = points.get_texture_coordinates();
     auto vertices = points.get_vertices();
 
     // Iterating through all points and setting XYZ coordinates
     // and RGB values
-    for (int i = 0; i < (int)points.size(); i++)
-    {
-        cloud->points[i].x = vertices[i].x;
-        cloud->points[i].y = vertices[i].y;
-        cloud->points[i].z = vertices[i].z;
+    for (int i = 0, pcl_idx = 0; i < (int)points.size(); i++) {
+        if (!(z_min <= cloud->points[i].z and cloud->points[i].z <= z_max))
+            continue;
+
+        cloud->points[pcl_idx].x = vertices[i].x;
+        cloud->points[pcl_idx].y = vertices[i].y;
+        cloud->points[pcl_idx].z = vertices[i].z;
 
         // Obtain color texture for specific point
         _rgb_texture = rgb_texture(color, texture_coordinates[i]);
 
         // Mapping Color (BGR due to Camera Model)
-        cloud->points[i].r = get<2>(_rgb_texture); // Reference tuple<2>
-        cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
-        cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
+        cloud->points[pcl_idx].r = get<2>(_rgb_texture); // Reference tuple<2>
+        cloud->points[pcl_idx].g = get<1>(_rgb_texture); // Reference tuple<1>
+        cloud->points[pcl_idx].b = get<0>(_rgb_texture); // Reference tuple<0>
+
+        ++pcl_idx;
     }
 
     return cloud; // PCL RGB Point Cloud generated
@@ -123,7 +134,7 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
         // Generate the pointcloud and texture mappings
         points = pc.calculate(depth);
 
-        auto pcl = convert_to_pcl(points, color);
+        auto pcl = convert_to_pcl(points, color, 0.5, 1.5);
         clouds.push_back(pcl);
         sleep(2);
     }
