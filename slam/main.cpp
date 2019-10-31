@@ -105,8 +105,9 @@ cloud_pointer filter_pcl(cloud_pointer cloud) {
 
     // 1. Applies pass through filter
     pass.setInputCloud(cloud);
-    pass.setFilterFieldName ("z");
+    pass.setFilterFieldName("z");
     pass.filter(*cloud_pass_through);
+    pass.setFilterLimits(0.5, 1.5);
 
     // 2. Applies sor filter
     pcl::StatisticalOutlierRemoval<rgb_cloud> sor;
