@@ -174,6 +174,7 @@ void pairAlign(
     icp.setEuclideanFitnessEpsilon(1);
     icp.setInputSource(points_with_normals_src);
     icp.setInputTarget(points_with_normals_tgt);
+
     icp.setMaximumIterations(20);
     icp.align(*points_with_normals_src);
     Eigen::Matrix4f Ti = icp.getFinalTransformation();

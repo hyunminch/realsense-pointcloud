@@ -4,6 +4,7 @@ project(slam)
 set(CMAKE_CXX_STANDARD 14)
 
 add_executable(slam main.cpp)
+add_executable(ndt ndt.cpp)
 
 find_package(realsense2)
 find_package(OpenGL REQUIRED)
@@ -16,3 +17,4 @@ add_definitions(${PCL_DEFINITIONS})
 set(DEPENDENCIES realsense2 glfw ${OPENGL_LIBRARIES} ${PCL_LIBRARIES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE ${DEPENDENCIES})
+target_link_libraries(ndt PRIVATE ${DEPENDENCIES})
