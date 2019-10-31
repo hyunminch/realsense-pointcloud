@@ -107,15 +107,13 @@ cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& 
 }
 
 std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
-    int _nr_frames = nr_frames;
-
     std::vector<cloud_pointer> clouds;
 
     rs2::pointcloud pc;
     rs2::points points;
 
-    while (_nr_frames--) {
-        std::cout << "Capturing..." << std::endl;
+    for (int frame = 0; frame < nr_frames; frame++) {
+        std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
 
         // Wait for the next set of frames from the camera
         auto frames = pipe.wait_for_frames();
@@ -136,6 +134,9 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
 
         auto pcl = convert_to_pcl(points, color, 0.5, 1.5);
         clouds.push_back(pcl);
+
+        std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
+
         sleep(2);
     }
     return clouds;
