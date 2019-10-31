@@ -11,6 +11,7 @@
 #include <pcl/registration/ndt.h>
 #include <pcl/registration/icp_nl.h>
 #include <pcl/registration/transforms.h>
+#include <pcl/registration/correspondence_rejection_trimmed.h>
 #include <pcl/visualization/pcl_visualizer.h>
 
 #include <pcl/visualization/cloud_viewer.h>
@@ -107,7 +108,7 @@ cloud_pointer filter_pcl(cloud_pointer cloud) {
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
     pass.filter(*cloud_pass_through);
-    pass.setFilterLimits(0.5, 1.5);
+    pass.setFilterLimits(0.2, 2.5);
 
     // 2. Applies sor filter
     pcl::StatisticalOutlierRemoval<rgb_cloud> sor;
@@ -124,7 +125,6 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
 
     rs2::pointcloud pc;
     rs2::points points;
-
 
     for (int frame = 0; frame < nr_frames; frame++) {
         std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
@@ -218,6 +218,55 @@ void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cl
     final_transform = target_to_source;
 }
 
+/**
+ * Incrementally registers a set of clouds, accumulating the point cloud as we go.
+ *
+ * @param clouds the clouds of concern
+ * @return a registered global point cloud, seen as in the perspective of the first given point cloud
+ * @author Hyun Min Choi
+ */
+cloud_pointer incremental_icp_registration(std::vector<cloud_pointer> clouds) {
+    pcl::ApproximateVoxelGrid<rgb_cloud> approx_voxel_grid;
+    pcl::IterativeClosestPoint<rgb_cloud, rgb_cloud> icp;
+    pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
+
+    approx_voxel_grid.setLeafSize(0.05, 0.05, 0.05);
+
+    icp.setMaximumIterations(30);
+    icp.setMaxCorrespondenceDistance(0.04);
+    icp.setTransformationEpsilon(1e-9);
+    icp.setEuclideanFitnessEpsilon(0.1);
+    icp.addCorrespondenceRejector(cor_rej_trimmed);
+
+    cloud_pointer target_cloud = clouds[0];
+
+    // these cloud pointers are to be used as temporary variables
+    cloud_pointer downsized_src(new point_cloud);
+    cloud_pointer downsized_dst(new point_cloud);
+
+    for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
+        cloud_pointer aligned(new point_cloud);
+
+        approx_voxel_grid.setInputCloud(clouds[cloud_idx]);
+        approx_voxel_grid.filter(*downsized_src);
+
+        approx_voxel_grid.setInputCloud(target_cloud);
+        approx_voxel_grid.filter(*downsized_dst);
+
+        icp.setInputSource(downsized_src);
+        icp.setInputTarget(downsized_dst);
+        icp.align(*aligned);
+
+        if (icp.hasConverged()) {
+            cloud_pointer transformed(new point_cloud);
+            pcl::transformPointCloud(*clouds[cloud_idx], *transformed, icp.getFinalTransformation());
+            *target_cloud += *transformed;
+        }
+    }
+
+    return target_cloud;
+}
+
 void register_glfw_callbacks(window& app, state& app_state);
 
 int main(int argc, char * argv[]) try {
@@ -230,47 +279,12 @@ int main(int argc, char * argv[]) try {
 
     auto clouds = get_clouds(pipe, nr_frames);
 
-    // cloud_pointer to_register = clouds[0];
-//    cloud_pointer filtered_cloud(new point_cloud);
-//    cloud_pointer registration_result = clouds[0];
-//
-//    pcl::ApproximateVoxelGrid<rgb_cloud> approximate_voxel_filter;
-//    pcl::IterativeClosestPoint<rgb_cloud, rgb_cloud> icp;
-//    int cnt_success = 0;
-////     Filtering input scan to roughly 10% of original size to increase speed of registration.
-//    for (int i = 1; i < nr_frames; i++) {
-//        cloud_pointer temp(new point_cloud);
-//        std::cout << "Unfiltered cloud contains " << registration_result->size()
-//                  << " data points from temp." << std::endl;
-//        approximate_voxel_filter.setLeafSize(0.2, 0.2, 0.2);
-//        approximate_voxel_filter.setInputCloud(registration_result);
-//        approximate_voxel_filter.filter(*filtered_cloud);
-//        std::cout << "Filtered cloud contains " << filtered_cloud->size()
-//                  << " data points from temp." << std::endl;
-//
-//        icp.setMaximumIterations(20);
-//        icp.setMaxCorrespondenceDistance(0.05);
-//        icp.setTransformationEpsilon(1e-8);
-//        icp.setEuclideanFitnessEpsilon(1);
-//        icp.setInputSource(filtered_cloud);
-//        icp.setInputTarget(clouds[i]);
-//        icp.align(*temp);
-//
-//        if (icp.hasConverged()) {
-//            cnt_success++;
-//            std::cout << "Converged "  << i << "!" << std::endl;
-//            pcl::transformPointCloud(*registration_result, *temp, icp.getFinalTransformation());
-//            // *temp += *clouds[i];
-//            registration_result = temp;
-//        } else {
-//            std::cout << "Point clouds did not converge. "
-//                      << "Attempting next iteration with old cloud." << std::endl;
-//        }
-//    }
-
     cloud_pointer pairwise_result(new point_cloud);
     cloud_pointer sum(new point_cloud);
 
+    auto incremental_registration_result = incremental_icp_registration(clouds);
+
+    /*
     Eigen::Matrix4f global_transform = Eigen::Matrix4f::Identity(), pair_transform;
     
     for (int i = 1; i < nr_frames; i++) {
@@ -282,17 +296,18 @@ int main(int argc, char * argv[]) try {
         pair_align(clouds[i - 1], clouds[i], temp, pair_transform, true);
 
         //transform current pair into the global transform
-        pcl::transformPointCloud (*temp, *pairwise_result, global_transform);
+        pcl::transformPointCloud(*temp, *pairwise_result, global_transform);
 
-        //update the global transform
+        // update the global transform
         global_transform *= pair_transform;
 
         *sum += *pairwise_result;
     }
+     */
 
 //    std::cout << "converging succeeded " << cnt_success << " times." << std::endl;
 
-//    pcl::io::savePCDFileASCII("capture.pcd", *temp);
+    pcl::io::savePCDFileBinary("capture.pcd", *incremental_registration_result);
 
     // Create a simple OpenGL window for rendering:
     window app(1280, 720, "RealSense PCL Pointcloud Example");
@@ -302,7 +317,7 @@ int main(int argc, char * argv[]) try {
     register_glfw_callbacks(app, app_state);
 
     while (app) {
-        draw_pointcloud(app, app_state, {sum});
+        draw_pointcloud(app, app_state, {incremental_registration_result});
     }
 
     return EXIT_SUCCESS;
@@ -353,7 +368,7 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
 
     float width = app.width(), height = app.height();
 
-    glClearColor(153.f / 255, 153.f / 255, 153.f / 255, 1);
+//    glClearColor(153.f / 255, 153.f / 255, 153.f / 255, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glMatrixMode(GL_PROJECTION);
