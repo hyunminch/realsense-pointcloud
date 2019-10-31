@@ -60,6 +60,7 @@ std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coo
     return { nt1, nt2, nt3 };
 }
 
+
 cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
     cloud_pointer cloud(new point_cloud);
 
@@ -129,6 +130,8 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
     }
     return clouds;
 }
+
+
 
 void pairAlign(
         const cloud_pointer cloud_src,
