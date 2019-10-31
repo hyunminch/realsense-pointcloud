@@ -152,12 +152,7 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
     return clouds;
 }
 
-void pairAlign(
-        const cloud_pointer cloud_src,
-        const cloud_pointer cloud_tgt,
-        cloud_pointer output,
-        Eigen::Matrix4f &final_transform,
-        bool downsample=false) {
+void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cloud_pointer output, Eigen::Matrix4f &final_transform, bool downsample = false) {
     cloud_pointer src(new point_cloud);
     cloud_pointer tgt(new point_cloud);
     pcl::VoxelGrid<rgb_cloud> grid;
@@ -264,9 +259,11 @@ int main(int argc, char * argv[]) try {
 //                      << "Attempting next iteration with old cloud." << std::endl;
 //        }
 //    }
+
     cloud_pointer pairwise_result(new point_cloud);
     cloud_pointer sum(new point_cloud);
-    Eigen::Matrix4f GlobalTransform = Eigen::Matrix4f::Identity(), pairTransform;
+
+    Eigen::Matrix4f global_transform = Eigen::Matrix4f::Identity(), pair_transform;
     
     for (int i = 1; i < nr_frames; i++) {
         std::cout << "result size: " << pairwise_result->size() << std:: endl;
@@ -274,13 +271,13 @@ int main(int argc, char * argv[]) try {
 
         cloud_pointer temp(new point_cloud);
 
-        pairAlign(clouds[i - 1], clouds[i], temp, pairTransform, true);
+        pair_align(clouds[i - 1], clouds[i], temp, pair_transform, true);
 
         //transform current pair into the global transform
-        pcl::transformPointCloud (*temp, *pairwise_result, GlobalTransform);
+        pcl::transformPointCloud (*temp, *pairwise_result, global_transform);
 
         //update the global transform
-        GlobalTransform *= pairTransform;
+        global_transform *= pair_transform;
 
         *sum += *pairwise_result;
     }
