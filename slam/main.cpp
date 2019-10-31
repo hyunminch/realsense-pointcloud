@@ -5,6 +5,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/approximate_voxel_grid.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/registration/icp.h>
 #include <pcl/registration/ndt.h>
@@ -180,13 +181,15 @@ void pairAlign(
 
     // Get the transformation from target to source
     Eigen::Matrix4f targetToSource = Ti.inverse();
-
+    
+    cloud_pointer registration_result(new point_cloud);
     //
     // Transform target back in source frame
-    pcl::transformPointCloud (*cloud_tgt, *output, targetToSource);
+    pcl::transformPointCloud (*cloud_tgt, *registration_result, targetToSource);
 
     // add the source to the transformed target
-    *output += *cloud_src;
+    *registration_result += *cloud_src;
+    
 
     final_transform = targetToSource;
 }
@@ -194,7 +197,7 @@ void pairAlign(
 void register_glfw_callbacks(window& app, state& app_state);
 
 int main(int argc, char * argv[]) try {
-    int nr_frames = 10;
+    int nr_frames = atoi(argv[1]);
 
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
@@ -243,11 +246,23 @@ int main(int argc, char * argv[]) try {
     cloud_pointer pairwise_result(new point_cloud);
     cloud_pointer sum(new point_cloud);
     Eigen::Matrix4f GlobalTransform = Eigen::Matrix4f::Identity(), pairTransform;
+    pcl::StatisticalOutlierRemoval<rgb_cloud> sor;
+    sor.setMeanK(50);
+    sor.setStddevMulThresh(1.5);
     for (int i = 1; i < nr_frames; i++) {
         std::cout << "result size: " << pairwise_result->size() << std:: endl;
         std::cout << "on " << i << std::endl;
+
         cloud_pointer temp(new point_cloud);
-        pairAlign(clouds[i - 1], clouds[i], temp, pairTransform, true);
+        cloud_pointer cloud_src(new point_cloud);
+        cloud_pointer cloud_tgt(new point_cloud);
+
+        sor.setInputCloud(clouds[i - 1]);
+        sor.filter(*cloud_src);
+        sor.setInputCloud(clouds[i]);
+        sor.filter(*cloud_tgt);
+
+        pairAlign(cloud_src, cloud_tgt, temp, pairTransform, true);
 
         //transform current pair into the global transform
         pcl::transformPointCloud (*temp, *pairwise_result, GlobalTransform);
