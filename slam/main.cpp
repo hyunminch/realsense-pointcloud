@@ -5,6 +5,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/approximate_voxel_grid.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/registration/icp.h>
 #include <pcl/registration/ndt.h>
@@ -71,15 +72,14 @@ cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& 
     cloud->width  = static_cast<uint32_t>(sp.width());
     cloud->height = static_cast<uint32_t>(sp.height());
     cloud->is_dense = false;
-    cloud->points.resize(points.size());
+    cloud->points.resize((int)points.size());
 
     auto texture_coordinates = points.get_texture_coordinates();
     auto vertices = points.get_vertices();
 
     // Iterating through all points and setting XYZ coordinates
     // and RGB values
-    for (int i = 0; i < (int)points.size(); i++)
-    {
+    for (int i = 0; i < (int)points.size(); i++) {
         cloud->points[i].x = vertices[i].x;
         cloud->points[i].y = vertices[i].y;
         cloud->points[i].z = vertices[i].z;
@@ -93,19 +93,42 @@ cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& 
         cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
     }
 
-    return cloud; // PCL RGB Point Cloud generated
+    return cloud;
+}
+
+/*
+ * Filter using two mechanisms
+ */
+cloud_pointer filter_pcl(cloud_pointer cloud) {
+    pcl::PassThrough<pcl::PointXYZRGB> pass;
+    cloud_pointer cloud_pass_through(new point_cloud);
+    cloud_pointer cloud_sor(new point_cloud);
+
+    // 1. Applies pass through filter
+    pass.setInputCloud(cloud);
+    pass.setFilterFieldName("z");
+    pass.filter(*cloud_pass_through);
+    pass.setFilterLimits(0.5, 1.5);
+
+    // 2. Applies sor filter
+    pcl::StatisticalOutlierRemoval<rgb_cloud> sor;
+    sor.setInputCloud(cloud_pass_through);
+    sor.setMeanK(50);
+    sor.setStddevMulThresh(1.5);
+    sor.filter(*cloud_sor);
+
+    return cloud_sor;
 }
 
 std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
-    int _nr_frames = nr_frames;
-
     std::vector<cloud_pointer> clouds;
 
     rs2::pointcloud pc;
     rs2::points points;
 
-    while (_nr_frames--) {
-        std::cout << "Capturing..." << std::endl;
+
+    for (int frame = 0; frame < nr_frames; frame++) {
+        std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
 
         // Wait for the next set of frames from the camera
         auto frames = pipe.wait_for_frames();
@@ -125,23 +148,26 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
         points = pc.calculate(depth);
 
         auto pcl = convert_to_pcl(points, color);
-        clouds.push_back(pcl);
+        auto filtered = filter_pcl(pcl);
+
+        std::cout << "  " << "[RS] Successfully filtered" << std::endl;
+
+        clouds.push_back(filtered);
+
+        std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
+
         sleep(2);
     }
+
     return clouds;
 }
 
 
-
-void pairAlign(
-        const cloud_pointer cloud_src,
-        const cloud_pointer cloud_tgt,
-        cloud_pointer output,
-        Eigen::Matrix4f &final_transform,
-        bool downsample=false) {
+void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cloud_pointer output, Eigen::Matrix4f &final_transform, bool downsample = false) {
     cloud_pointer src(new point_cloud);
     cloud_pointer tgt(new point_cloud);
     pcl::VoxelGrid<rgb_cloud> grid;
+
     if (downsample) {
         grid.setLeafSize(0.2, 0.2, 0.2);
 
@@ -159,7 +185,7 @@ void pairAlign(
     point_cloud_with_normals::Ptr points_with_normals_tgt(new point_cloud_with_normals);
 
     pcl::NormalEstimation<rgb_cloud, rgb_normal_cloud> norm_est;
-    pcl::search::KdTree<rgb_cloud>::Ptr tree (new pcl::search::KdTree<rgb_cloud>());
+    pcl::search::KdTree<rgb_cloud>::Ptr tree(new pcl::search::KdTree<rgb_cloud>());
     norm_est.setSearchMethod(tree);
     norm_est.setKSearch(30);
 
@@ -183,22 +209,21 @@ void pairAlign(
     Eigen::Matrix4f Ti = icp.getFinalTransformation();
 
     // Get the transformation from target to source
-    Eigen::Matrix4f targetToSource = Ti.inverse();
-
-    //
+    Eigen::Matrix4f target_to_source = Ti.inverse();
+    
     // Transform target back in source frame
-    pcl::transformPointCloud (*cloud_tgt, *output, targetToSource);
+    pcl::transformPointCloud(*cloud_tgt, *output, target_to_source);
 
     // add the source to the transformed target
     *output += *cloud_src;
 
-    final_transform = targetToSource;
+    final_transform = target_to_source;
 }
 
 void register_glfw_callbacks(window& app, state& app_state);
 
 int main(int argc, char * argv[]) try {
-    int nr_frames = 10;
+    int nr_frames = atoi(argv[1]);
 
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
@@ -244,20 +269,25 @@ int main(int argc, char * argv[]) try {
 //                      << "Attempting next iteration with old cloud." << std::endl;
 //        }
 //    }
+
     cloud_pointer pairwise_result(new point_cloud);
     cloud_pointer sum(new point_cloud);
-    Eigen::Matrix4f GlobalTransform = Eigen::Matrix4f::Identity(), pairTransform;
+
+    Eigen::Matrix4f global_transform = Eigen::Matrix4f::Identity(), pair_transform;
+    
     for (int i = 1; i < nr_frames; i++) {
         std::cout << "result size: " << pairwise_result->size() << std:: endl;
         std::cout << "on " << i << std::endl;
+
         cloud_pointer temp(new point_cloud);
-        pairAlign(clouds[i - 1], clouds[i], temp, pairTransform, true);
+
+        pair_align(clouds[i - 1], clouds[i], temp, pair_transform, true);
 
         //transform current pair into the global transform
-        pcl::transformPointCloud (*temp, *pairwise_result, GlobalTransform);
+        pcl::transformPointCloud (*temp, *pairwise_result, global_transform);
 
         //update the global transform
-        GlobalTransform *= pairTransform;
+        global_transform *= pair_transform;
 
         *sum += *pairwise_result;
     }
