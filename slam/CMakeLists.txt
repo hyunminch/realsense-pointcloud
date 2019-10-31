@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 14)
 
 add_executable(slam main.cpp)
 add_executable(ndt ndt.cpp)
+add_executable(visualize_pcd visualize_pcd.cpp)
 
 find_package(realsense2)
 find_package(OpenGL REQUIRED)
