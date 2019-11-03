@@ -21,6 +21,114 @@ struct state {
 };
 
 
+
+typedef pcl::PointXYZRGB rgb_cloud;
+typedef pcl::PointCloud<rgb_cloud> point_cloud;
+typedef point_cloud::Ptr cloud_pointer;
+typedef pcl::PointXYZRGBNormal rgb_normal_cloud;
+typedef pcl::PointCloud<rgb_normal_cloud> point_cloud_with_normals;
+
+using pcl_ptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
+
+std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coordinate texture_coords) {
+    // Get Width and Height coordinates of texture
+    int width  = texture.get_width();  // Frame width in pixels
+    int height = texture.get_height(); // Frame height in pixels
+
+    // Normals to Texture Coordinates conversion
+    int x_value = std::min(std::max(int(texture_coords.u * width + .5f), 0), width - 1);
+    int y_value = std::min(std::max(int(texture_coords.v * height + .5f), 0), height - 1);
+
+    int bytes = x_value * texture.get_bytes_per_pixel();   // Get # of bytes per pixel
+    int strides = y_value * texture.get_stride_in_bytes(); // Get line width in bytes
+    int text_index = (bytes + strides);
+
+    const auto new_texture = reinterpret_cast<const uint8_t*>(texture.get_data());
+
+    // RGB components to save in tuple
+    int nt1 = new_texture[text_index];
+    int nt2 = new_texture[text_index + 1];
+    int nt3 = new_texture[text_index + 2];
+
+    return { nt1, nt2, nt3 };
+}
+
+
+cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
+    cloud_pointer cloud(new point_cloud);
+
+    std::tuple<uint8_t, uint8_t, uint8_t> _rgb_texture;
+
+    auto sp = points.get_profile().as<rs2::video_stream_profile>();
+
+    cloud->width  = static_cast<uint32_t>(sp.width());
+    cloud->height = static_cast<uint32_t>(sp.height());
+    cloud->is_dense = false;
+    cloud->points.resize(points.size());
+
+    auto texture_coordinates = points.get_texture_coordinates();
+    auto vertices = points.get_vertices();
+
+    // Iterating through all points and setting XYZ coordinates
+    // and RGB values
+    for (int i = 0; i < (int)points.size(); i++)
+    {
+        cloud->points[i].x = vertices[i].x;
+        cloud->points[i].y = vertices[i].y;
+        cloud->points[i].z = vertices[i].z;
+
+        // Obtain color texture for specific point
+        _rgb_texture = rgb_texture(color, texture_coordinates[i]);
+
+        // Mapping Color (BGR due to Camera Model)
+        cloud->points[i].r = get<2>(_rgb_texture); // Reference tuple<2>
+        cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
+        cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
+    }
+
+    return cloud; // PCL RGB Point Cloud generated
+}
+
+
+std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
+    int _nr_frames = nr_frames;
+
+    std::vector<cloud_pointer> clouds;
+
+    rs2::pointcloud pc;
+    rs2::points points;
+
+    while (_nr_frames--) {
+        std::cout << "Capturing..." << std::endl;
+
+        // Wait for the next set of frames from the camera
+        auto frames = pipe.wait_for_frames();
+
+        auto color = frames.get_color_frame();
+
+        // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
+        if (!color)
+            color = frames.get_infrared_frame();
+
+        // Tell pointcloud object to map to this color frame
+        pc.map_to(color);
+
+        auto depth = frames.get_depth_frame();
+
+        // Generate the pointcloud and texture mappings
+        points = pc.calculate(depth);
+
+        auto pcl = convert_to_pcl(points, color);
+        clouds.push_back(pcl);
+				std::cout << "Capture end"<<std::endl;
+        sleep(2);
+    }
+    return clouds;
+}
+
+
+
+
 void register_glfw_callbacks(window& app, state& app_state) {
     app.on_left_mouse = [&](bool pressed) {
         app_state.ml = pressed;
@@ -53,7 +161,8 @@ void register_glfw_callbacks(window& app, state& app_state) {
 }
 
 
-void draw_pointcloud(window& app, state& app_state, pcl::PointCloud<pcl::PointXYZRGB>::Ptr ptr) {
+
+void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points) {
     // OpenGL commands that prep screen for the pointcloud
     glPopMatrix();
     glPushAttrib(GL_ALL_ATTRIB_BITS);
@@ -80,15 +189,22 @@ void draw_pointcloud(window& app, state& app_state, pcl::PointCloud<pcl::PointXY
     glEnable(GL_TEXTURE_2D);
 
     int color = 0;
-		
-		glBegin(GL_POINTS);
-		for (auto p : ptr->points){
-			if (p.z){
-				glColor3f(p.r / 255.0, p.g / 255.0, p.b / 255.0);
-				glVertex3f(p.x, p.y, p.z);
-			}
-		}
-		glEnd();
+
+    for (auto&& pc : points) {
+        glBegin(GL_POINTS);
+
+        /* this segment actually prints the pointcloud */
+        for (auto & p : pc->points) {
+            if (p.z) {
+                // upload the point and texture coordinates only for points we have depth data for
+                glColor3f(p.r / 255.0, p.g / 255.0, p.b / 255.0);
+                glVertex3f(p.x, p.y, p.z);
+            }
+ 				}
+
+        glEnd();
+    }
+
     // OpenGL cleanup
     glPopMatrix();
     glMatrixMode(GL_PROJECTION);
@@ -97,73 +213,96 @@ void draw_pointcloud(window& app, state& app_state, pcl::PointCloud<pcl::PointXY
     glPushMatrix();
 }
 
+
+
 void register_glft_callbacks(window& app, state& app_state);
+
+void ndtAlign(
+        const cloud_pointer cloud_src,
+        const cloud_pointer cloud_tgt,
+        cloud_pointer output,
+        Eigen::Matrix4f &final_transform,
+        bool downsample=false) {
+    cloud_pointer src(new point_cloud);
+    cloud_pointer tgt(new point_cloud);
+    pcl::VoxelGrid<rgb_cloud> grid;
+    if (downsample) {
+        grid.setLeafSize(0.2, 0.2, 0.2);
+
+        grid.setInputCloud(cloud_src);
+        grid.filter(*src);
+
+        grid.setInputCloud(cloud_tgt);
+        grid.filter(*tgt);
+    } else {
+        src = cloud_src;
+        tgt = cloud_tgt;
+    }
+
+		 pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+
+	  pcl::ApproximateVoxelGrid<pcl::PointXYZRGB> approximate_voxel_filter;
+  	approximate_voxel_filter.setLeafSize (0.2, 0.2, 0.2);
+  	approximate_voxel_filter.setInputCloud (src);
+  	approximate_voxel_filter.filter (*filtered_cloud);
+
+	
+		pcl::NormalDistributionsTransform<pcl::PointXYZRGB, pcl::PointXYZRGB> ndt;
+		ndt.setTransformationEpsilon(0.01);
+		ndt.setStepSize(0.1);
+		ndt.setResolution(1.0);
+
+		ndt.setMaximumIterations(35);
+		ndt.setInputSource(src);
+		
+		ndt.setInputTarget(tgt);
+		Eigen::AngleAxisf init_rotation (0, Eigen::Vector3f::UnitZ());
+		Eigen::Translation3f init_translation(0,0,0);
+		Eigen::Matrix4f init_guess = (init_translation * init_rotation).matrix();
+		ndt.align(*output, init_guess);
+
+
+    //
+    // Transform target back in source frame
+    pcl::transformPointCloud (*cloud_tgt, *output, ndt.getFinalTransformation());
+
+    // add the source to the transformed target
+    *output += *src;
+
+}
+
 
 int
 main (int argc, char** argv)
 {
-  // Loading first scan of room.
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr target_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-  if (pcl::io::loadPCDFile<pcl::PointXYZRGB> (argv[1], *target_cloud) == -1)
-  {
-    return (-1);
-  }
+	int nr_frames = 20;
+	rs2::pipeline pipe;
+	pipe.start();
 
-  // Loading second scan of room from new perspective.
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-  if (pcl::io::loadPCDFile<pcl::PointXYZRGB> (argv[2], *input_cloud) == -1)
-  {
-    return (-1);
-  }
+	auto clouds = get_clouds(pipe, nr_frames);
 
-  // Filtering input scan to roughly 10% of original size to increase speed of registration.
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	cloud_pointer ndt_result(new point_cloud);
+	cloud_pointer sum(new point_cloud);
+	Eigen::Matrix4f GlobalTransform = Eigen::Matrix4f::Identity(), pairTransform;
+    for (int i = 1; i < nr_frames; i++) {
+        cloud_pointer temp(new point_cloud);
+        ndtAlign(clouds[i - 1], clouds[i], temp, pairTransform, true);
 
-  pcl::ApproximateVoxelGrid<pcl::PointXYZRGB> approximate_voxel_filter;
-  approximate_voxel_filter.setLeafSize (0.2, 0.2, 0.2);
-  approximate_voxel_filter.setInputCloud (input_cloud);
-  approximate_voxel_filter.filter (*filtered_cloud);
+        //transform current pair into the global transform
+        pcl::transformPointCloud (*temp, *ndt_result, GlobalTransform);
 
-  // Initializing Normal Distributions Transform (NDT).
-  pcl::NormalDistributionsTransform<pcl::PointXYZRGB, pcl::PointXYZRGB> ndt;
+        //update the global transform
+        GlobalTransform *= pairTransform;
 
-  // Setting scale dependent NDT parameters
-  // Setting minimum transformation difference for termination condition.
-  ndt.setTransformationEpsilon (0.01);
-  // Setting maximum step size for More-Thuente line search.
-  ndt.setStepSize (0.1);
-  //Setting Resolution of NDT grid structure (VoxelGridCovariance).
-  ndt.setResolution (1.0);
+        *sum += *ndt_result;
+    }
 
-  // Setting max number of registration iterations.
-  ndt.setMaximumIterations (35);
-
-  // Setting point cloud to be aligned.
-  ndt.setInputSource (filtered_cloud);
-  // Setting point cloud to be aligned to.
-  ndt.setInputTarget (target_cloud);
-
-  // Set initial alignment estimate found using robot odometry.
-  Eigen::AngleAxisf init_rotation (0, Eigen::Vector3f::UnitZ ());
-  Eigen::Translation3f init_translation (0, 0, 0);
-  Eigen::Matrix4f init_guess = (init_translation * init_rotation).matrix ();
-
-  // Calculating required rigid transform to align the input cloud to the target cloud.
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr output_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-  ndt.align (*output_cloud, init_guess);
-
-
-  // Transforming unfiltered, input cloud using found transform.
-  pcl::transformPointCloud (*input_cloud, *output_cloud, ndt.getFinalTransformation ());
-
-  // Saving transformed input cloud.
-  pcl::io::savePCDFileASCII ("../pcdSample/out.pcd", *output_cloud);
 
 	window app(1280, 720, "NDT example");
 	state app_state;
 	register_glfw_callbacks(app, app_state);
 	while(app){
-		draw_pointcloud(app, app_state, output_cloud);
+		draw_pointcloud(app, app_state, {sum});
 	}
 
   return (0);
