@@ -286,3 +286,5 @@ ndt
 slam
 *.pcd
 slam.cbp
+
+.vscode/

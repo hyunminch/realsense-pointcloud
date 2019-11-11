@@ -11,4 +11,3 @@ cmake .
 make all
 ./slam
 ```
-

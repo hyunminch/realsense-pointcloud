@@ -20,8 +20,6 @@ struct state {
     double yaw, pitch, last_x, last_y; bool ml; float offset_x, offset_y;
 };
 
-
-
 typedef pcl::PointXYZRGB rgb_cloud;
 typedef pcl::PointCloud<rgb_cloud> point_cloud;
 typedef point_cloud::Ptr cloud_pointer;
@@ -89,7 +87,6 @@ cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& 
     return cloud; // PCL RGB Point Cloud generated
 }
 
-
 std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
     int _nr_frames = nr_frames;
 
@@ -120,14 +117,14 @@ std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
 
         auto pcl = convert_to_pcl(points, color);
         clouds.push_back(pcl);
-				std::cout << "Capture end"<<std::endl;
+
+        std::cout << "Capture end" << std::endl;
+
         sleep(2);
     }
+
     return clouds;
 }
-
-
-
 
 void register_glfw_callbacks(window& app, state& app_state) {
     app.on_left_mouse = [&](bool pressed) {
