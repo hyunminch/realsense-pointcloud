@@ -1,5 +1,4 @@
 #include <librealsense2/rs.hpp>
-#include "utils.hpp"
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -13,9 +12,7 @@
 #include <pcl/registration/transforms.h>
 #include <pcl/registration/correspondence_rejection_trimmed.h>
 #include <pcl/visualization/pcl_visualizer.h>
-
 #include <pcl/visualization/cloud_viewer.h>
-
 #include <pcl/io/pcd_io.h>
 
 #include <iostream>
@@ -23,150 +20,18 @@
 #include <algorithm>
 #include <string>
 
-struct state {
-    state() : yaw(0.0), pitch(0.0), last_x(0.0), last_y(0.0),
-              ml(false), offset_x(0.0f), offset_y(0.0f) {}
-    double yaw, pitch, last_x, last_y; bool ml; float offset_x, offset_y;
-};
-
-typedef pcl::PointXYZRGB rgb_cloud;
-typedef pcl::PointCloud<rgb_cloud> point_cloud;
-typedef point_cloud::Ptr cloud_pointer;
-typedef pcl::PointXYZRGBNormal rgb_normal_cloud;
-typedef pcl::PointCloud<rgb_normal_cloud> point_cloud_with_normals;
+#include "utils.hpp"
+#include "types.hpp"
+#include "capture.hpp"
+#include "visualizer.hpp"
+#include "incremental_icp.hpp"
 
 using pcl_ptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 
-void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points);
-
-std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coordinate texture_coords) {
-    // Get Width and Height coordinates of texture
-    int width  = texture.get_width();  // Frame width in pixels
-    int height = texture.get_height(); // Frame height in pixels
-
-    // Normals to Texture Coordinates conversion
-    int x_value = std::min(std::max(int(texture_coords.u * width + .5f), 0), width - 1);
-    int y_value = std::min(std::max(int(texture_coords.v * height + .5f), 0), height - 1);
-
-    int bytes = x_value * texture.get_bytes_per_pixel();   // Get # of bytes per pixel
-    int strides = y_value * texture.get_stride_in_bytes(); // Get line width in bytes
-    int text_index = (bytes + strides);
-
-    const auto new_texture = reinterpret_cast<const uint8_t*>(texture.get_data());
-
-    // RGB components to save in tuple
-    int nt1 = new_texture[text_index];
-    int nt2 = new_texture[text_index + 1];
-    int nt3 = new_texture[text_index + 2];
-
-    return { nt1, nt2, nt3 };
-}
-
-
-cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
-    cloud_pointer cloud(new point_cloud);
-
-    std::tuple<uint8_t, uint8_t, uint8_t> _rgb_texture;
-
-    auto sp = points.get_profile().as<rs2::video_stream_profile>();
-
-    cloud->width  = static_cast<uint32_t>(sp.width());
-    cloud->height = static_cast<uint32_t>(sp.height());
-    cloud->is_dense = false;
-    cloud->points.resize((int)points.size());
-
-    auto texture_coordinates = points.get_texture_coordinates();
-    auto vertices = points.get_vertices();
-
-    // Iterating through all points and setting XYZ coordinates
-    // and RGB values
-    for (int i = 0; i < (int)points.size(); i++) {
-        cloud->points[i].x = vertices[i].x;
-        cloud->points[i].y = vertices[i].y;
-        cloud->points[i].z = vertices[i].z;
-
-        // Obtain color texture for specific point
-        _rgb_texture = rgb_texture(color, texture_coordinates[i]);
-
-        // Mapping Color (BGR due to Camera Model)
-        cloud->points[i].r = get<2>(_rgb_texture); // Reference tuple<2>
-        cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
-        cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
-    }
-
-    return cloud;
-}
-
-/*
- * Filter using two mechanisms
- */
-cloud_pointer filter_pcl(cloud_pointer cloud) {
-    pcl::PassThrough<pcl::PointXYZRGB> pass;
-    cloud_pointer cloud_pass_through(new point_cloud);
-    cloud_pointer cloud_sor(new point_cloud);
-
-    // 1. Applies pass through filter
-    pass.setInputCloud(cloud);
-    pass.setFilterFieldName("z");
-    pass.filter(*cloud_pass_through);
-    pass.setFilterLimits(0.2, 2.5);
-
-    // 2. Applies sor filter
-    pcl::StatisticalOutlierRemoval<rgb_cloud> sor;
-    sor.setInputCloud(cloud_pass_through);
-    sor.setMeanK(50);
-    sor.setStddevMulThresh(1.5);
-    sor.filter(*cloud_sor);
-
-    return cloud_sor;
-}
-
-std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
-    std::vector<cloud_pointer> clouds;
-
-    rs2::pointcloud pc;
-    rs2::points points;
-
-    for (int frame = 0; frame < nr_frames; frame++) {
-        std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
-
-        // Wait for the next set of frames from the camera
-        auto frames = pipe.wait_for_frames();
-
-        auto color = frames.get_color_frame();
-
-        // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
-        if (!color)
-            color = frames.get_infrared_frame();
-
-        // Tell pointcloud object to map to this color frame
-        pc.map_to(color);
-
-        auto depth = frames.get_depth_frame();
-
-        // Generate the pointcloud and texture mappings
-        points = pc.calculate(depth);
-
-        auto pcl = convert_to_pcl(points, color);
-        auto filtered = filter_pcl(pcl);
-
-        std::cout << "  " << "[RS] Successfully filtered" << std::endl;
-
-        clouds.push_back(filtered);
-
-        std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
-
-        sleep(2);
-    }
-
-    return clouds;
-}
-
-
-void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cloud_pointer output, Eigen::Matrix4f &final_transform, bool downsample = false) {
-    cloud_pointer src(new point_cloud);
-    cloud_pointer tgt(new point_cloud);
-    pcl::VoxelGrid<rgb_cloud> grid;
+void pair_align(const rgb_point_cloud_pointer cloud_src, const rgb_point_cloud_pointer cloud_tgt, rgb_point_cloud_pointer output, Eigen::Matrix4f &final_transform, bool downsample = false) {
+    rgb_point_cloud_pointer src(new rgb_point_cloud);
+    rgb_point_cloud_pointer tgt(new rgb_point_cloud);
+    pcl::VoxelGrid<rgb_point> grid;
 
     if (downsample) {
         grid.setLeafSize(0.2, 0.2, 0.2);
@@ -181,11 +46,11 @@ void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cl
         tgt = cloud_tgt;
     }
 
-    point_cloud_with_normals::Ptr points_with_normals_src(new point_cloud_with_normals);
-    point_cloud_with_normals::Ptr points_with_normals_tgt(new point_cloud_with_normals);
+    rgb_normal_point_cloud::Ptr points_with_normals_src(new rgb_normal_point_cloud);
+    rgb_normal_point_cloud::Ptr points_with_normals_tgt(new rgb_normal_point_cloud);
 
-    pcl::NormalEstimation<rgb_cloud, rgb_normal_cloud> norm_est;
-    pcl::search::KdTree<rgb_cloud>::Ptr tree(new pcl::search::KdTree<rgb_cloud>());
+    pcl::NormalEstimation<rgb_point, rgb_normal_point> norm_est;
+    pcl::search::KdTree<rgb_point>::Ptr tree(new pcl::search::KdTree<rgb_point>());
     norm_est.setSearchMethod(tree);
     norm_est.setKSearch(30);
 
@@ -197,7 +62,7 @@ void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cl
     norm_est.compute(*points_with_normals_tgt);
     pcl::copyPointCloud(*tgt, *points_with_normals_tgt);
 
-    pcl::IterativeClosestPointNonLinear<rgb_normal_cloud, rgb_normal_cloud> icp;
+    pcl::IterativeClosestPointNonLinear<rgb_normal_point, rgb_normal_point> icp;
     icp.setMaxCorrespondenceDistance(0.05);
     icp.setTransformationEpsilon(1e-8);
     icp.setEuclideanFitnessEpsilon(1);
@@ -220,55 +85,6 @@ void pair_align(const cloud_pointer cloud_src, const cloud_pointer cloud_tgt, cl
     final_transform = target_to_source;
 }
 
-/**
- * Incrementally registers a set of clouds, accumulating the point cloud as we go.
- *
- * @param clouds the clouds of concern
- * @return a registered global point cloud, seen as in the perspective of the first given point cloud
- * @author Hyun Min Choi
- */
-cloud_pointer incremental_icp_registration(std::vector<cloud_pointer> clouds) {
-    pcl::ApproximateVoxelGrid<rgb_cloud> approx_voxel_grid;
-    pcl::IterativeClosestPoint<rgb_cloud, rgb_cloud> icp;
-    pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
-
-    approx_voxel_grid.setLeafSize(0.05, 0.05, 0.05);
-
-    icp.setMaximumIterations(30);
-    icp.setMaxCorrespondenceDistance(0.04);
-    icp.setTransformationEpsilon(1e-9);
-    icp.setEuclideanFitnessEpsilon(0.1);
-    icp.addCorrespondenceRejector(cor_rej_trimmed);
-
-    cloud_pointer target_cloud = clouds[0];
-
-    // these cloud pointers are to be used as temporary variables
-    cloud_pointer downsized_src(new point_cloud);
-    cloud_pointer downsized_dst(new point_cloud);
-
-    for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
-        cloud_pointer aligned(new point_cloud);
-
-        approx_voxel_grid.setInputCloud(clouds[cloud_idx]);
-        approx_voxel_grid.filter(*downsized_src);
-
-        approx_voxel_grid.setInputCloud(target_cloud);
-        approx_voxel_grid.filter(*downsized_dst);
-
-        icp.setInputSource(downsized_src);
-        icp.setInputTarget(downsized_dst);
-        icp.align(*aligned);
-
-        if (icp.hasConverged()) {
-            cloud_pointer transformed(new point_cloud);
-            pcl::transformPointCloud(*clouds[cloud_idx], *transformed, icp.getFinalTransformation());
-            *target_cloud += *transformed;
-        }
-    }
-
-    return target_cloud;
-}
-
 void register_glfw_callbacks(window& app, state& app_state);
 
 int main(int argc, char * argv[]) try {
@@ -281,10 +97,12 @@ int main(int argc, char * argv[]) try {
 
     auto clouds = get_clouds(pipe, nr_frames);
 
-    cloud_pointer pairwise_result(new point_cloud);
-    cloud_pointer sum(new point_cloud);
+    rgb_point_cloud_pointer pairwise_result(new rgb_point_cloud);
+    rgb_point_cloud_pointer sum(new rgb_point_cloud);
 
-    auto incremental_registration_result = incremental_icp_registration(clouds);
+    auto registration_scheme = new IncrementalICP();
+
+    auto incremental_registration_result = registration_scheme->registration(clouds);
 
     /*
     Eigen::Matrix4f global_transform = Eigen::Matrix4f::Identity(), pair_transform;
@@ -293,7 +111,7 @@ int main(int argc, char * argv[]) try {
         std::cout << "result size: " << pairwise_result->size() << std:: endl;
         std::cout << "on " << i << std::endl;
 
-        cloud_pointer temp(new point_cloud);
+        rgb_point_cloud_pointer temp(new point_cloud);
 
         pair_align(clouds[i - 1], clouds[i], temp, pair_transform, true);
 
@@ -329,87 +147,4 @@ int main(int argc, char * argv[]) try {
 } catch (const std::exception & e) {
     std::cerr << e.what() << std::endl;
     return EXIT_FAILURE;
-}
-
-// Registers the state variable and callbacks to allow mouse control of the pointcloud
-void register_glfw_callbacks(window& app, state& app_state) {
-    app.on_left_mouse = [&](bool pressed) {
-        app_state.ml = pressed;
-    };
-
-    app.on_mouse_scroll = [&](double xoffset, double yoffset) {
-        app_state.offset_x += static_cast<float>(xoffset);
-        app_state.offset_y += static_cast<float>(yoffset);
-    };
-
-    app.on_mouse_move = [&](double x, double y) {
-        if (app_state.ml) {
-            app_state.yaw -= (x - app_state.last_x);
-            app_state.yaw = std::max(app_state.yaw, -120.0);
-            app_state.yaw = std::min(app_state.yaw, +120.0);
-            app_state.pitch += (y - app_state.last_y);
-            app_state.pitch = std::max(app_state.pitch, -80.0);
-            app_state.pitch = std::min(app_state.pitch, +80.0);
-        }
-        app_state.last_x = x;
-        app_state.last_y = y;
-    };
-
-    app.on_key_release = [&](int key) {
-        // Escape
-        if (key == 32) {
-            app_state.yaw = app_state.pitch = 0; app_state.offset_x = app_state.offset_y = 0.0;
-        }
-    };
-}
-
-void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points) {
-    // OpenGL commands that prep screen for the pointcloud
-    glPopMatrix();
-    glPushAttrib(GL_ALL_ATTRIB_BITS);
-
-    float width = app.width(), height = app.height();
-
-//    glClearColor(153.f / 255, 153.f / 255, 153.f / 255, 1);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    glMatrixMode(GL_PROJECTION);
-    glPushMatrix();
-    gluPerspective(60, width / height, 0.01f, 10.0f);
-
-    glMatrixMode(GL_MODELVIEW);
-    glPushMatrix();
-    gluLookAt(0, 0, 0, 0, 0, 1, 0, -1, 0);
-
-    glTranslatef(0, 0, +0.5f + app_state.offset_y*0.05f);
-    glRotated(app_state.pitch, 1, 0, 0);
-    glRotated(app_state.yaw, 0, 1, 0);
-    glTranslatef(0, 0, -0.5f);
-
-    glPointSize(width / 640);
-    glEnable(GL_TEXTURE_2D);
-
-    int color = 0;
-
-    for (auto&& pc : points) {
-        glBegin(GL_POINTS);
-
-        /* this segment actually prints the pointcloud */
-        for (auto & p : pc->points) {
-            if (p.z) {
-                // upload the point and texture coordinates only for points we have depth data for
-                glColor3f(p.r / 255.0, p.g / 255.0, p.b / 255.0);
-                glVertex3f(p.x, p.y, p.z);
-            }
-        }
-
-        glEnd();
-    }
-
-    // OpenGL cleanup
-    glPopMatrix();
-    glMatrixMode(GL_PROJECTION);
-    glPopMatrix();
-    glPopAttrib();
-    glPushMatrix();
 }

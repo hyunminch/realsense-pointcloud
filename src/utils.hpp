@@ -1,3 +1,6 @@
+#ifndef _UTILS_H
+#define _UTILS_H
+
 #include <librealsense2/rs.hpp>
 
 #define GL_SILENCE_DEPRECATION
@@ -938,3 +941,5 @@ void register_glfw_callbacks(window& app, glfw_state& app_state)
         }
     };
 }
+
+#endif
