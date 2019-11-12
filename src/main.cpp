@@ -25,6 +25,8 @@
 #include "capture.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
+#include "pairwise_icp.hpp"
+#include "ndt.hpp"
 
 using pcl_ptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 
@@ -84,8 +86,6 @@ void pair_align(const rgb_point_cloud_pointer cloud_src, const rgb_point_cloud_p
 
     final_transform = target_to_source;
 }
-
-void register_glfw_callbacks(window& app, state& app_state);
 
 int main(int argc, char * argv[]) try {
     int nr_frames = atoi(argv[1]);
