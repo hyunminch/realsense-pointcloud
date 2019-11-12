@@ -19,6 +19,7 @@ public:
 class TwoPhaseRegistrationScheme: public RegistrationScheme {
 public:
     virtual rgb_point_cloud_pointer extract_features(rgb_point_cloud_pointer cloud) = 0;
+    // Given a vector<pair<feature_cloud, original_cloud>>, compute a global point cloud
     virtual rgb_point_cloud_pointer global_registration(std::vector<std::pair<rgb_point_cloud_pointer, rgb_point_cloud_pointer>>& clouds) = 0;
 
     rgb_point_cloud_pointer registration(std::vector<rgb_point_cloud_pointer>& clouds) {
