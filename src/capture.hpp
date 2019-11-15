@@ -27,7 +27,6 @@ std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coo
     return { nt1, nt2, nt3 };
 }
 
-
 rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
     rgb_point_cloud_pointer cloud(new rgb_point_cloud);
 
@@ -69,6 +68,7 @@ rgb_point_cloud_pointer filter_pcl(rgb_point_cloud_pointer cloud) {
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     rgb_point_cloud_pointer cloud_pass_through(new rgb_point_cloud);
     rgb_point_cloud_pointer cloud_sor(new rgb_point_cloud);
+    rgb_point_cloud_pointer cloud_voxel_grid(new rgb_point_cloud);
 
     // 1. Applies pass through filter
     pass.setInputCloud(cloud);
@@ -83,7 +83,44 @@ rgb_point_cloud_pointer filter_pcl(rgb_point_cloud_pointer cloud) {
     sor.setStddevMulThresh(1.5);
     sor.filter(*cloud_sor);
 
-    return cloud_sor;
+    pcl::ApproximateVoxelGrid<pcl::PointXYZRGB> voxel_grid;
+    voxel_grid.setLeafSize(0.01, 0.01, 0.01);
+    voxel_grid.setInputCloud(cloud_sor);
+    voxel_grid.filter(*cloud_voxel_grid);
+
+    return cloud_voxel_grid;
+}
+
+rgb_point_cloud_pointer get_cloud(rs2::pipeline pipe) {
+    rs2::pointcloud pc;
+    rs2::points points;
+    rs2::spatial_filter spatial_filter;
+
+    spatial_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.25f);
+
+    for (int i = 0; i < 30; i++)
+        auto frames = pipe.wait_for_frames();
+
+    auto frames = pipe.wait_for_frames();
+    auto color = frames.get_color_frame();
+
+    // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
+    if (!color)
+        color = frames.get_infrared_frame();
+
+    // Tell pointcloud object to map to this color frame
+    pc.map_to(color);
+
+    auto depth = frames.get_depth_frame();
+    auto filtered_depth = spatial_filter.process(depth);
+
+    // Generate the pointcloud and texture mappings
+    points = pc.calculate(filtered_depth);
+
+    auto pcl = convert_to_pcl(points, color);
+//    auto filtered = filter_pcl(pcl);
+
+    return pcl;
 }
 
 std::vector<rgb_point_cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
@@ -113,11 +150,11 @@ std::vector<rgb_point_cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frame
         points = pc.calculate(depth);
 
         auto pcl = convert_to_pcl(points, color);
-        auto filtered = filter_pcl(pcl);
+//        auto filtered = filter_pcl(pcl);
 
         std::cout << "  " << "[RS] Successfully filtered" << std::endl;
 
-        clouds.push_back(filtered);
+        clouds.push_back(pcl);
 
         std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
 
