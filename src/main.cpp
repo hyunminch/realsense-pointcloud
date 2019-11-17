@@ -24,7 +24,8 @@
 
 #include "utils.hpp"
 #include "types.hpp"
-#include "capture.hpp"
+//#include "capture.hpp"
+#include "capture_with_motion.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
 #include "edge_based_registration.hpp"
