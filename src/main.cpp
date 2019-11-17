@@ -226,28 +226,3 @@ int main(int argc, char *argv[]) try {
     std::cerr << e.what() << std::endl;
     return EXIT_FAILURE;
 }
-
-    /*
-    Eigen::Matrix4f global_transform = Eigen::Matrix4f::Identity(), pair_transform;
-    
-    for (int i = 1; i < nr_frames; i++) {
-        std::cout << "result size: " << pairwise_result->size() << std:: endl;
-        std::cout << "on " << i << std::endl;
-
-        rgb_point_cloud_pointer temp(new point_cloud);
-
-        pair_align(clouds[i - 1], clouds[i], temp, pair_transform, true);
-
-        //transform current pair into the global transform
-        pcl::transformPointCloud(*temp, *pairwise_result, global_transform);
-
-        // update the global transform
-        global_transform *= pair_transform;
-
-        *sum += *pairwise_result;
-    }
-     */
-
-    // std::cout << "converging succeeded " << cnt_success << " times." << std::endl;
-
-    // pcl::io::savePCDFileBinary("capture.pcd", *incremental_registration_result);
