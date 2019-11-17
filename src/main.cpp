@@ -22,7 +22,8 @@
 
 #include "utils.hpp"
 #include "types.hpp"
-#include "capture.hpp"
+//#include "capture.hpp"
+#include "capture_with_motion.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
 #include "pairwise_icp.hpp"
@@ -93,9 +94,9 @@ int main(int argc, char * argv[]) try {
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
     // Start streaming with default recommended configuration
-    pipe.start();
+    //pipe.start();
 
-    auto clouds = get_clouds(pipe, nr_frames);
+    auto clouds = get_clouds_camera_motion(pipe, nr_frames);
 
     rgb_point_cloud_pointer pairwise_result(new rgb_point_cloud);
     rgb_point_cloud_pointer sum(new rgb_point_cloud);
