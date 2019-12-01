@@ -82,12 +82,10 @@ public:
     }
 };
 
-
 std::vector<rgb_point_cloud_pointer> get_clouds_camera_motion(rs2::pipeline pipe, int nr_frames){
-	std::vector<rgb_point_cloud_pointer>	clouds;
+	std::vector<rgb_point_cloud_pointer> clouds;
 	rs2::pointcloud pc;
 	rs2::points points;
-
 	rs2::config config;
 
 	config.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
@@ -95,6 +93,7 @@ std::vector<rgb_point_cloud_pointer> get_clouds_camera_motion(rs2::pipeline pipe
 	config.enable_stream(RS2_STREAM_INFRARED, 1280, 720, RS2_FORMAT_Y8, 15);
 	config.enable_stream(RS2_STREAM_COLOR,1280, 720, RS2_FORMAT_BGR8, 15);
 	config.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 15);
+
 	rotation_estimator camera_rotate;
 	pipe.start(config);
 		for (int f = 0; f < nr_frames; f++){
