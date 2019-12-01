@@ -112,8 +112,13 @@ void registration(const std::string prefix, int frames) {
         clouds.push_back(cloud_ptr);
     }
 
+//    auto incremental_icp = new IncrementalICP();
+//    auto result = incremental_icp->registration(clouds);
+
     auto edge_based_registration = new EdgeBasedRegistration();
     auto result = edge_based_registration->registration(clouds);
+
+    pcl::io::savePCDFileBinary("dataset/" + prefix + "-registration", *result);
 
     // Create a simple OpenGL window for rendering:
     window app(1280, 720, "RealSense PCL PointCloud Example");
@@ -127,6 +132,22 @@ void registration(const std::string prefix, int frames) {
     }
 }
 
+void viewer(std::string name) {
+    rgb_point_cloud_pointer cloud(new rgb_point_cloud);
+    pcl::io::loadPCDFile("dataset/" + name, *cloud);
+
+    // Create a simple OpenGL window for rendering:
+    window app(1280, 720, "RealSense PCL PointCloud Example");
+    // Construct an object to manage view state
+    state app_state;
+    // register callbacks to allow manipulation of the pointcloud
+    register_glfw_callbacks(app, app_state);
+
+    while (app) {
+        draw_pointcloud(app, app_state, {cloud});
+    }
+}
+
 void capture_and_registration(int frames) {
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
@@ -135,8 +156,11 @@ void capture_and_registration(int frames) {
 
     auto clouds = get_clouds(pipe, frames);
 
-    auto edge_based_registration = new EdgeBasedRegistration();
-    auto result = edge_based_registration->registration(clouds);
+    auto incremental_icp = new IncrementalICP();
+    auto result = incremental_icp->registration(clouds);
+
+//    auto edge_based_registration = new EdgeBasedRegistration();
+//    auto result = edge_based_registration->registration(clouds);
 
     // Create a simple OpenGL window for rendering:
     window app(1280, 720, "RealSense PCL PointCloud Example");
@@ -163,6 +187,11 @@ int main(int argc, char *argv[]) try {
         int frames = atoi(argv[3]);
 
         registration(dataset_prefix, frames);
+
+        return 0;
+    } else if (strcmp(argv[1], "--view") == 0)  {
+        std::string name = argv[2];
+        viewer(name);
 
         return 0;
     } else {
