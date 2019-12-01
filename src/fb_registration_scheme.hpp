@@ -134,6 +134,13 @@ public:
 
         std::cout << "descriptor extraction..." << std::flush;
         feature_extractor->compute(*features);
+
+        // Look for NaN points
+        for (int i = 0; i < features->size(); i++) 
+            for (int j = 0; j < 33; j++) 
+                if (!std::isfinite(features->points[i].histogram[j])) 
+                    features->points[i].histogram[j] = 0;
+
         std::cout << "OK" << std::endl;
     }
 
