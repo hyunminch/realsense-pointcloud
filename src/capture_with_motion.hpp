@@ -82,12 +82,10 @@ public:
     }
 };
 
-
 std::vector<rgb_point_cloud_pointer> get_clouds_camera_motion(rs2::pipeline pipe, int nr_frames){
-	std::vector<rgb_point_cloud_pointer>	clouds;
+	std::vector<rgb_point_cloud_pointer> clouds;
 	rs2::pointcloud pc;
 	rs2::points points;
-
 	rs2::config config;
 
 	config.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
@@ -95,30 +93,38 @@ std::vector<rgb_point_cloud_pointer> get_clouds_camera_motion(rs2::pipeline pipe
 	config.enable_stream(RS2_STREAM_INFRARED, 1280, 720, RS2_FORMAT_Y8, 15);
 	config.enable_stream(RS2_STREAM_COLOR,1280, 720, RS2_FORMAT_BGR8, 15);
 	config.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 15);
+
 	rotation_estimator camera_rotate;
 	pipe.start(config);
-		for (int f = 0; f < nr_frames; f++){
-			auto frames = pipe.wait_for_frames();
-			auto camera_accel = frames.first(RS2_STREAM_ACCEL).as<rs2::motion_frame>();
-			auto camera_gyro = frames.first(RS2_STREAM_GYRO).as<rs2::motion_frame>();
-			auto accel_data = camera_accel.get_motion_data();
-			cout << "Camera Accel data : "<<accel_data<<endl;
-			auto gyro_data = camera_gyro.get_motion_data();
-			cout << "Camera gyro data : "<<gyro_data<<endl;
-			auto color = frames.get_color_frame();
-			cout << "[RS] Capture start"<<endl;
-			if (!color) color = frames.get_infrared_frame();
-			pc.map_to(color);
-			auto depth = frames.get_depth_frame();
-			points = pc.calculate(depth);
 
-			auto pcl = convert_to_pcl(points, color);
-			auto filtered = filter_pcl(pcl);
-			std::cout<<"  [RS] Successfully filtered" << std::endl;
-			clouds.push_back(filtered);
-			std::cout << "[RS] Captured frame[" << f<<"]"<<std::endl;
-			sleep(2);
-		}	
+    for (int f = 0; f < nr_frames; f++) {
+        auto frames = pipe.wait_for_frames();
+        auto camera_accel = frames.first(RS2_STREAM_ACCEL).as<rs2::motion_frame>()
+        auto camera_gyro = frames.first(RS2_STREAM_GYRO).as<rs2::motion_frame>();
+
+        auto accel_data = camera_accel.get_motion_data();
+        cout << "Camera Accel data : " << accel_data << endl;
+
+        auto gyro_data = camera_gyro.get_motion_data();
+        cout << "Camera gyro data : " << gyro_data << endl;
+
+        auto color = frames.get_color_frame();
+        cout << "[RS] Capture start" << endl;
+
+        if (!color) color = frames.get_infrared_frame();
+        pc.map_to(color);
+        auto depth = frames.get_depth_frame();
+        points = pc.calculate(depth);
+
+        auto pcl = convert_to_pcl(points, color);
+        auto filtered = filter_pcl(pcl);
+        std::cout<<"  [RS] Successfully filtered" << std::endl;
+        clouds.push_back(filtered);
+        std::cout << "[RS] Captured frame[" << f << "]" << std::endl;
+        sleep(2);
+    }
+
 	pipe.stop();
+
 	return clouds;
 }
