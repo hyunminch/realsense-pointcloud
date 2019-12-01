@@ -92,15 +92,28 @@ void pair_align(const rgb_point_cloud_pointer cloud_src, const rgb_point_cloud_p
     final_transform = target_to_source;
 }
 
-int main(int argc, char * argv[]) try {
-    int nr_frames = atoi(argv[1]);
-
-    // Declare RealSense pipeline, encapsulating the actual device and sensors
+void capture(const std::string prefix, int frames) {
     rs2::pipeline pipe;
-    // Start streaming with default recommended configuration
     pipe.start();
 
-    auto clouds = get_clouds(pipe, nr_frames);
+    auto clouds = get_clouds(pipe, frames);
+    for (int frame = 0; frame < frames; frame++)
+        pcl::io::savePCDFileBinary("dataset/" + prefix + "-" + std::to_string(frame), *clouds[frame]);
+
+    pipe.stop();
+}
+
+void registration(const std::string prefix, int frames) {
+    std::vector<rgb_point_cloud_pointer> clouds;
+
+    for (int frame = 0; frame < frames; frame++) {
+        rgb_point_cloud_pointer cloud_ptr(new rgb_point_cloud);
+        pcl::io::loadPCDFile("dataset/" + prefix + "-" + std::to_string(frame), *cloud_ptr);
+        clouds.push_back(cloud_ptr);
+    }
+
+    auto edge_based_registration = new EdgeBasedRegistration();
+    auto result = edge_based_registration->registration(clouds);
 
     // Create a simple OpenGL window for rendering:
     window app(1280, 720, "RealSense PCL PointCloud Example");
@@ -109,25 +122,55 @@ int main(int argc, char * argv[]) try {
     // register callbacks to allow manipulation of the pointcloud
     register_glfw_callbacks(app, app_state);
 
+    while (app) {
+        draw_pointcloud(app, app_state, {result});
+    }
+}
+
+void capture_and_registration(int frames) {
+    // Declare RealSense pipeline, encapsulating the actual device and sensors
+    rs2::pipeline pipe;
+    // Start streaming with default recommended configuration
+    pipe.start();
+
+    auto clouds = get_clouds(pipe, frames);
+
     auto edge_based_registration = new EdgeBasedRegistration();
     auto result = edge_based_registration->registration(clouds);
+
+    // Create a simple OpenGL window for rendering:
+    window app(1280, 720, "RealSense PCL PointCloud Example");
+    // Construct an object to manage view state
+    state app_state;
+    // register callbacks to allow manipulation of the pointcloud
+    register_glfw_callbacks(app, app_state);
 
     while (app) {
         draw_pointcloud(app, app_state, {result});
     }
+}
 
-    // rgb_point_cloud_pointer pairwise_result(new rgb_point_cloud);
-    // rgb_point_cloud_pointer sum(new rgb_point_cloud);
+int main(int argc, char *argv[]) try {
+    if (strcmp(argv[1], "--capture") == 0) {
+        std::string dataset_prefix = argv[2];
+        int frames = atoi(argv[3]);
 
-    // auto registration_scheme = new IncrementalICP();
+        capture(dataset_prefix, frames);
 
-    // auto incremental_registration_result = registration_scheme->registration(clouds);
+        return 0;
+    } else if (strcmp(argv[1], "--registration") == 0) {
+        std::string dataset_prefix = argv[2];
+        int frames = atoi(argv[3]);
 
-    // while (app) {
-    //     draw_pointcloud(app, app_state, {incremental_registration_result});
-    // }
+        registration(dataset_prefix, frames);
 
-    return EXIT_SUCCESS;
+        return 0;
+    } else {
+        int frames = atoi(argv[1]);
+        capture_and_registration(frames);
+
+        return 0;
+    }
 } catch (const rs2::error & e) {
     std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
     return EXIT_FAILURE;
