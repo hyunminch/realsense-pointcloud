@@ -66,10 +66,10 @@ class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
 
         approx_voxel_grid.setLeafSize(0.05, 0.05, 0.05);
 
-        icp.setMaximumIterations(15);
-        icp.setMaxCorrespondenceDistance(0.10);
-        icp.setTransformationEpsilon(1e-8);
-        icp.setEuclideanFitnessEpsilon(0.20);
+        icp.setMaximumIterations(1000);
+        icp.setMaxCorrespondenceDistance(0.01);
+        icp.setTransformationEpsilon(1e-5);
+        icp.setEuclideanFitnessEpsilon(0.50);
         icp.addCorrespondenceRejector(cor_rej_trimmed);
 
         rgb_point_cloud_pointer target_cloud = clouds[0].first;
