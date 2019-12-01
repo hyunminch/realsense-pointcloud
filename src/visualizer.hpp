@@ -59,7 +59,7 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
 
     float width = app.width(), height = app.height();
 
-//    glClearColor(153.f / 255, 153.f / 255, 153.f / 255, 1);
+    glClearColor(153.f / 255, 153.f / 255, 153.f / 255, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glMatrixMode(GL_PROJECTION);
@@ -86,7 +86,6 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
         /* this segment actually prints the pointcloud */
         for (auto & p : pc->points) {
             if (p.z) {
-                // upload the point and texture coordinates only for points we have depth data for
                 glColor3f(p.r / 255.0, p.g / 255.0, p.b / 255.0);
                 glVertex3f(p.x, p.y, p.z);
             }

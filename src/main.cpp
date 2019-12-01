@@ -6,6 +6,7 @@
 #include <pcl/filters/approximate_voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/features/normal_3d_omp.h>
 #include <pcl/registration/icp.h>
 #include <pcl/registration/ndt.h>
 #include <pcl/registration/icp_nl.h>
@@ -14,6 +15,7 @@
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/features/organized_edge_detection.h>
 
 #include <iostream>
 #include <vector>
@@ -25,8 +27,11 @@
 #include "capture.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
+#include "edge_based_registration.hpp"
 #include "pairwise_icp.hpp"
 #include "ndt.hpp"
+
+#include "filters/edge_filter.hpp"
 
 using pcl_ptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 
@@ -97,12 +102,39 @@ int main(int argc, char * argv[]) try {
 
     auto clouds = get_clouds(pipe, nr_frames);
 
-    rgb_point_cloud_pointer pairwise_result(new rgb_point_cloud);
-    rgb_point_cloud_pointer sum(new rgb_point_cloud);
+    // Create a simple OpenGL window for rendering:
+    window app(1280, 720, "RealSense PCL PointCloud Example");
+    // Construct an object to manage view state
+    state app_state;
+    // register callbacks to allow manipulation of the pointcloud
+    register_glfw_callbacks(app, app_state);
 
-    auto registration_scheme = new IncrementalICP();
+    auto edge_based_registration = new EdgeBasedRegistration();
+    auto result = edge_based_registration->registration(clouds);
 
-    auto incremental_registration_result = registration_scheme->registration(clouds);
+    while (app) {
+        draw_pointcloud(app, app_state, {result});
+    }
+
+    // rgb_point_cloud_pointer pairwise_result(new rgb_point_cloud);
+    // rgb_point_cloud_pointer sum(new rgb_point_cloud);
+
+    // auto registration_scheme = new IncrementalICP();
+
+    // auto incremental_registration_result = registration_scheme->registration(clouds);
+
+    // while (app) {
+    //     draw_pointcloud(app, app_state, {incremental_registration_result});
+    // }
+
+    return EXIT_SUCCESS;
+} catch (const rs2::error & e) {
+    std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
+    return EXIT_FAILURE;
+} catch (const std::exception & e) {
+    std::cerr << e.what() << std::endl;
+    return EXIT_FAILURE;
+}
 
     /*
     Eigen::Matrix4f global_transform = Eigen::Matrix4f::Identity(), pair_transform;
@@ -125,26 +157,6 @@ int main(int argc, char * argv[]) try {
     }
      */
 
-//    std::cout << "converging succeeded " << cnt_success << " times." << std::endl;
+    // std::cout << "converging succeeded " << cnt_success << " times." << std::endl;
 
-    pcl::io::savePCDFileBinary("capture.pcd", *incremental_registration_result);
-
-    // Create a simple OpenGL window for rendering:
-    window app(1280, 720, "RealSense PCL Pointcloud Example");
-    // Construct an object to manage view state
-    state app_state;
-    // register callbacks to allow manipulation of the pointcloud
-    register_glfw_callbacks(app, app_state);
-
-    while (app) {
-        draw_pointcloud(app, app_state, {incremental_registration_result});
-    }
-
-    return EXIT_SUCCESS;
-} catch (const rs2::error & e) {
-    std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
-    return EXIT_FAILURE;
-} catch (const std::exception & e) {
-    std::cerr << e.what() << std::endl;
-    return EXIT_FAILURE;
-}
+    // pcl::io::savePCDFileBinary("capture.pcd", *incremental_registration_result);
