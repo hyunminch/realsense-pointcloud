@@ -1,9 +1,5 @@
 src/.idea
 src/slam
-<<<<<<< HEAD
-.vscode
-=======
 .vscode/
 
 dataset/
->>>>>>> master
