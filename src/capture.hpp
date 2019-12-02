@@ -83,11 +83,6 @@ rgb_point_cloud_pointer filter_pcl(rgb_point_cloud_pointer cloud) {
     sor.setStddevMulThresh(1.5);
     sor.filter(*cloud_sor);
 
-    pcl::ApproximateVoxelGrid<pcl::PointXYZRGB> voxel_grid;
-    voxel_grid.setLeafSize(0.01, 0.01, 0.01);
-    voxel_grid.setInputCloud(cloud_sor);
-    voxel_grid.filter(*cloud_voxel_grid);
-
     return cloud_voxel_grid;
 }
 
@@ -98,7 +93,7 @@ rgb_point_cloud_pointer get_cloud(rs2::pipeline pipe) {
 
     spatial_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.25f);
 
-    for (int i = 0; i < 30; i++)
+    for (int i = 0; i < 100; i++)
         auto frames = pipe.wait_for_frames();
 
     auto frames = pipe.wait_for_frames();
@@ -118,7 +113,7 @@ rgb_point_cloud_pointer get_cloud(rs2::pipeline pipe) {
     points = pc.calculate(filtered_depth);
 
     auto pcl = convert_to_pcl(points, color);
-//    auto filtered = filter_pcl(pcl);
+    auto filtered = filter_pcl(pcl);
 
     return pcl;
 }
@@ -128,6 +123,10 @@ std::vector<rgb_point_cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frame
 
     rs2::pointcloud pc;
     rs2::points points;
+
+    // To minimize unknown color issues
+    for (int i = 0; i < 30; i++)
+        auto frames = pipe.wait_for_frames();
 
     for (int frame = 0; frame < nr_frames; frame++) {
         std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
@@ -150,7 +149,7 @@ std::vector<rgb_point_cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frame
         points = pc.calculate(depth);
 
         auto pcl = convert_to_pcl(points, color);
-//        auto filtered = filter_pcl(pcl);
+        auto filtered = filter_pcl(pcl);
 
         std::cout << "  " << "[RS] Successfully filtered" << std::endl;
 

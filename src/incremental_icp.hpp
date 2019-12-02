@@ -37,13 +37,13 @@ public:
         pcl::IterativeClosestPoint<rgb_point, rgb_point> icp;
         pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
 
-        approx_voxel_grid.setLeafSize(0.05, 0.05, 0.05);
+//        approx_voxel_grid.setLeafSize(0.05, 0.05, 0.05);
 
-        icp.setMaximumIterations(30);
-        icp.setMaxCorrespondenceDistance(0.04);
-        icp.setTransformationEpsilon(1e-9);
-        icp.setEuclideanFitnessEpsilon(0.1);
-        icp.addCorrespondenceRejector(cor_rej_trimmed);
+//        icp.setMaximumIterations(30);
+//        icp.setMaxCorrespondenceDistance(0.04);
+//        icp.setTransformationEpsilon(1e-9);
+//        icp.setEuclideanFitnessEpsilon(0.1);
+//        icp.addCorrespondenceRejector(cor_rej_trimmed);
 
         rgb_point_cloud_pointer target_cloud = clouds[0];
 
@@ -57,11 +57,8 @@ public:
             approx_voxel_grid.setInputCloud(clouds[cloud_idx]);
             approx_voxel_grid.filter(*downsized_src);
 
-            approx_voxel_grid.setInputCloud(target_cloud);
-            approx_voxel_grid.filter(*downsized_dst);
-
             icp.setInputSource(downsized_src);
-            icp.setInputTarget(downsized_dst);
+            icp.setInputTarget(target_cloud);
             icp.align(*aligned);
 
             if (icp.hasConverged()) {

@@ -17,23 +17,6 @@ class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
         ne.setInputCloud(cloud);
         ne.compute(*normals);
 
-//        // Create the normal estimation class, and pass the input dataset to it
-//        ne.setInputCloud(cloud);
-//
-//        // Create an empty kdtree representation, and pass it to the normal estimation object.
-//        // Its content will be filled inside the object, based on the given input dataset (as no other search surface is given).
-//        pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>());
-//        ne.setSearchMethod(tree);
-//
-//        // Output datasets
-//        pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
-//
-//        // Use all neighbors in a sphere of radius 3cm
-//        ne.setRadiusSearch(0.03);
-//
-//        // Compute the features
-//        ne.compute(*cloud_normals);
-
         oed.setInputNormals(normals);
         oed.setInputCloud(cloud);
         oed.setDepthDisconThreshold(0.2); // 2cm
@@ -64,15 +47,30 @@ class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
         pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
         pcl::ApproximateVoxelGrid<rgb_point> approx_voxel_grid;
 
-        approx_voxel_grid.setLeafSize(0.05, 0.05, 0.05);
+        float rads = 0.523599;
+        float acc_rads = 0.;
+
+        pcl::NormalDistributionsTransform<pcl::PointXYZRGB, pcl::PointXYZRGB> ndt;
+        ndt.setTransformationEpsilon(0.01);
+        ndt.setStepSize(0.1);
+        ndt.setResolution(1.0);
+
+        ndt.setMaximumIterations(50);
+
+        approx_voxel_grid.setLeafSize(0.01, 0.01, 0.01);
 
         icp.setMaximumIterations(1000);
         icp.setMaxCorrespondenceDistance(0.01);
-        icp.setTransformationEpsilon(1e-5);
-        icp.setEuclideanFitnessEpsilon(0.50);
-        icp.addCorrespondenceRejector(cor_rej_trimmed);
+        icp.setTransformationEpsilon(1);
+        icp.setEuclideanFitnessEpsilon(1000);
 
         rgb_point_cloud_pointer target_cloud = clouds[0].first;
+        rgb_point_cloud_pointer global_cloud(new rgb_point_cloud);
+
+        *global_cloud = *global_cloud + *clouds[0].second;
+
+        approx_voxel_grid.setInputCloud(target_cloud);
+        approx_voxel_grid.filter(*target_cloud);
 
         // these cloud pointers are to be used as temporary variables
         rgb_point_cloud_pointer downsized_src(new rgb_point_cloud);
@@ -80,25 +78,37 @@ class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
 
         for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
             rgb_point_cloud_pointer aligned(new rgb_point_cloud);
+            rgb_point_cloud_pointer icp_aligned(new rgb_point_cloud);
 
             approx_voxel_grid.setInputCloud(clouds[cloud_idx].first);
             approx_voxel_grid.filter(*downsized_src);
 
-            approx_voxel_grid.setInputCloud(target_cloud);
-            approx_voxel_grid.filter(*downsized_dst);
+            ndt.setInputSource(downsized_src);
+            ndt.setInputTarget(target_cloud);
 
-            icp.setInputSource(downsized_src);
-            icp.setInputTarget(downsized_dst);
-            icp.align(*aligned);
+            acc_rads -= rads;
+
+            Eigen::AngleAxisf init_rotation(acc_rads, Eigen::Vector3f::UnitY());
+            Eigen::Translation3f init_translation(0,0,0);
+            Eigen::Matrix4f init_guess = (init_translation * init_rotation).matrix();
+
+            ndt.align(*aligned, init_guess);
+
+            icp.setInputSource(aligned);
+            icp.setInputTarget(target_cloud);
+            icp.align(*icp_aligned);
 
             if (icp.hasConverged()) {
                 rgb_point_cloud_pointer transformed(new rgb_point_cloud);
-                pcl::transformPointCloud(*clouds[cloud_idx].first, *transformed, icp.getFinalTransformation());
-                *target_cloud += *transformed;
+                pcl::transformPointCloud(*clouds[cloud_idx].second, *transformed, ndt.getFinalTransformation());
+                pcl::transformPointCloud(*transformed, *transformed, icp.getFinalTransformation());
+
+                *target_cloud = *icp_aligned + *target_cloud;
+                *global_cloud = *global_cloud + *transformed;
             }
         }
 
-        return target_cloud;
+        return global_cloud;
     }
 };
 
