@@ -4,6 +4,8 @@
 #include "types.hpp"
 #include "utils.hpp"
 
+#include "capture_with_motion.hpp"
+
 std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coordinate texture_coords) {
     // Get Width and Height coordinates of texture
     int width  = texture.get_width();  // Frame width in pixels
@@ -118,11 +120,13 @@ rgb_point_cloud_pointer get_cloud(rs2::pipeline pipe) {
     return pcl;
 }
 
-std::vector<rgb_point_cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
-    std::vector<rgb_point_cloud_pointer> clouds;
+std::vector<std::pair<rgb_point_cloud_pointer, float3>> get_clouds(rs2::pipeline pipe, int nr_frames) {
+    std::vector<std::pair<rgb_point_cloud_pointer, float3>> clouds;
 
     rs2::pointcloud pc;
     rs2::points points;
+
+    rotation_estimator algo;
 
     // To minimize unknown color issues
     for (int i = 0; i < 30; i++)
@@ -133,6 +137,33 @@ std::vector<rgb_point_cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frame
 
         // Wait for the next set of frames from the camera
         auto frames = pipe.wait_for_frames();
+
+        // Get a frame from gyro stream
+        auto gyro_frame = frames.first_or_default(RS2_STREAM_GYRO);
+        // Cast to motion frame
+        auto gyro_motion = gyro_frame.as<rs2::motion_frame>();
+        // Get the timestamp that arrived to motion frame
+        double ts = gyro_motion.get_timestamp();
+        // Get gyro measures
+        auto gyro_data = gyro_motion.get_motion_data();
+        // Call function that computes the angle of motion based on the retrieved measures
+        algo.process_gyro(gyro_data, ts);
+
+        // Get a frame from accelerometer stream
+        auto accel_frame = frames.first_or_default(RS2_STREAM_ACCEL);
+        // Cast to motion frame
+        auto accel_motion = accel_frame.as<rs2::motion_frame>();
+        // Get accelerometer measures
+        auto accel_data = accel_motion.get_motion_data();
+        // Call function that computes the angle of motion based on the retrieved measures
+        algo.process_accel(accel_data);
+
+        // Get computed rotation
+        float3 theta = algo.get_theta();
+        cout << "THETA: " 
+             << theta.x << ", " 
+             << theta.y << ", "
+             << theta.z << endl;
 
         auto color = frames.get_color_frame();
 
@@ -153,7 +184,7 @@ std::vector<rgb_point_cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frame
 
         std::cout << "  " << "[RS] Successfully filtered" << std::endl;
 
-        clouds.push_back(pcl);
+        clouds.push_back(std::make_pair(pcl, theta));
 
         std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
 
