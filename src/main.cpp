@@ -24,16 +24,22 @@
 
 #include "utils.hpp"
 #include "types.hpp"
+<<<<<<< HEAD
 #include "capture_with_motion.hpp"
+=======
+#include "capture.hpp"
+>>>>>>> obtain clouds in pipeline callback
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
 #include "edge_based_registration.hpp"
 #include "pairwise_icp.hpp"
-#include "ndt.hpp"
+// #include "ndt.hpp"
 
 #include "filters/edge_filter.hpp"
 
 using pcl_ptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
+
+float3 theta;
 
 void pair_align(const rgb_point_cloud_pointer cloud_src, const rgb_point_cloud_pointer cloud_tgt, rgb_point_cloud_pointer output, Eigen::Matrix4f &final_transform, bool downsample = false) {
     rgb_point_cloud_pointer src(new rgb_point_cloud);
@@ -94,11 +100,43 @@ void pair_align(const rgb_point_cloud_pointer cloud_src, const rgb_point_cloud_p
 
 void capture(const std::string prefix, int frames) {
     rs2::pipeline pipe;
-    pipe.start();
+    rs2::config cfg;
 
-    auto clouds = get_clouds(pipe, frames);
-    for (int frame = 0; frame < frames; frame++)
+    cfg.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
+    cfg.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F);
+    cfg.enable_stream(RS2_STREAM_INFRARED, 1280, 720, RS2_FORMAT_Y8, 6);
+    cfg.enable_stream(RS2_STREAM_COLOR,1280, 720, RS2_FORMAT_BGR8, 6);
+    cfg.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 6);
+
+    pipe.start(cfg);
+
+    // pipe.start(cfg, [&](rs2::frame frame) {
+    //     // Cast the frame that arrived to motion frame
+    //     auto motion = frame.as<rs2::motion_frame>();
+    //     // If casting succeeded and the arrived frame is from gyro stream
+    //     if (motion && motion.get_profile() == RS2_STREAM_GYRO && motion.get_profile().format() == RS2_FORMAT_MOTION_XYZ32F) {
+    //         // Get the timestamp that arrived to motion frame
+    //         double ts = motion.get_timestamp();
+    //         // Get gyro measures
+    //         rs2_vector gyro_data = motion.get_motion_data();
+    //         // Call function that computes the angle of motion based on the retrieved measures
+    //         algo.process_gyro(gyro_data, ts);
+    //     }
+
+    //     if (motion && motion.get_profile() == RS2_STREAM_ACCEL && motion.get_profile().format() == RS2_FORMAT_MOTION_XYZ32F) {
+    //         // Get accelerometer measures
+    //         rs2_vector accel_data = motion.get_motion_data();
+    //         // Call function that computes the angle of motion based on the retrieved measures
+    //         algo.process_accel(accel_data);
+    //     }
+    // });
+
+    auto pair = get_clouds(/* pipe, */frames);
+    auto clouds = pair.first;
+    auto thetas = pair.second;
+    for (int frame = 0; frame < frames; frame++) {
         pcl::io::savePCDFileBinary("dataset/" + prefix + "-" + std::to_string(frame), *clouds[frame]);
+    }
 
     pipe.stop();
 }
@@ -173,13 +211,16 @@ void capture_and_registration(int frames) {
     // Start streaming with default recommended configuration
     pipe.start();
 
-    auto clouds = get_clouds(pipe, frames);
+    auto pair = get_clouds(/* pipe, */frames);
+    auto clouds = pair.first;
+    auto thetas = pair.second;
 
     auto incremental_icp = new IncrementalICP();
-    auto result = incremental_icp->registration(clouds);
+    // auto result = incremental_icp->registration(clouds);
 
-//    auto edge_based_registration = new EdgeBasedRegistration();
-//    auto result = edge_based_registration->registration(clouds);
+    auto edge_based_registration = new EdgeBasedRegistration(thetas);
+    // edge_based_registration->set_thetas(thetas);
+    auto result = edge_based_registration->registration(clouds);
 
     // Create a simple OpenGL window for rendering:
     window app(1280, 720, "RealSense PCL PointCloud Example");

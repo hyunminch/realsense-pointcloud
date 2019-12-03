@@ -1,7 +1,6 @@
 #include <librealsense2/rs.hpp>
 #include <mutex>
 #include <cstring>
-#include "capture.hpp"
 
 class rotation_estimator
 {
@@ -132,5 +131,5 @@ std::vector<rgb_point_cloud_pointer> get_clouds_camera_motion(rs2::pipeline pipe
 			sleep(2);
 		}	
 
-	return clouds;
-}
+//     return clouds;
+// }

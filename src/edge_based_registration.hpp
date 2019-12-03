@@ -5,8 +5,21 @@
 #include "types.hpp"
 
 class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
+public:
 //    pcl::NormalEstimationOMP<pcl::PointXYZRGB, pcl::Normal> ne;
     pcl::OrganizedEdgeFromRGBNormals<pcl::PointXYZRGB, pcl::Normal, pcl::Label> oed;
+    
+
+    EdgeBasedRegistration(): TwoPhaseRegistrationScheme() {}
+    EdgeBasedRegistration(std::vector<float3>& input_thetas): TwoPhaseRegistrationScheme() {
+        thetas = input_thetas;
+        use_imu = true;
+    }
+
+    void set_thetas(std::vector<float3>& theta_v) {
+        thetas = theta_v;
+        use_imu = true;
+    }
 
     rgb_point_cloud_pointer extract_features(rgb_point_cloud_pointer cloud) {
         pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
@@ -43,6 +56,9 @@ class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
 
     // Given a vector<pair<feature_cloud, original_cloud>>, compute a global point cloud
     rgb_point_cloud_pointer global_registration(std::vector<std::pair<rgb_point_cloud_pointer, rgb_point_cloud_pointer>>& clouds) {
+        if (use_imu)
+            assert(clouds.size() == thetas.size());
+
         pcl::IterativeClosestPoint<rgb_point, rgb_point> icp;
         pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
         pcl::ApproximateVoxelGrid<rgb_point> approx_voxel_grid;
@@ -87,10 +103,25 @@ class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
             ndt.setInputTarget(target_cloud);
 
             acc_rads -= rads;
+            cout << acc_rads << endl;
+            float3 absolute_theta = thetas[0] * -1.0;
+            thetas[cloud_idx].add(absolute_theta.x, absolute_theta.y, absolute_theta.z);
+            // thetas[cloud_idx] *= -1.0;
+            cout << "RELATIVE THETA: " 
+                 << thetas[cloud_idx].x << ", " 
+                 << thetas[cloud_idx].y << ", "
+                 << thetas[cloud_idx].z << endl;
 
-            Eigen::AngleAxisf init_rotation(acc_rads, Eigen::Vector3f::UnitY());
+            // Eigen::AngleAxisf init_rotation_x(thetas[cloud_idx].x, Eigen::Vector3f::UnitX());
+            Eigen::AngleAxisf init_rotation_y(thetas[cloud_idx].y, Eigen::Vector3f::UnitY());
+            // Eigen::AngleAxisf init_rotation_z(thetas[cloud_idx].z, Eigen::Vector3f::UnitZ());
+            // auto init_rotation = init_rotation_x + init_rotation_y + init_rotation_z;
             Eigen::Translation3f init_translation(0,0,0);
-            Eigen::Matrix4f init_guess = (init_translation * init_rotation).matrix();
+            Eigen::Matrix4f init_guess = (
+                init_translation * 
+                // init_rotation_x *
+                init_rotation_y/* *
+                init_rotation_z*/).matrix();
 
             ndt.align(*aligned, init_guess);
 
@@ -110,6 +141,10 @@ class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
 
         return global_cloud;
     }
+
+private:
+    bool use_imu = false;
+    std::vector<float3> thetas;
 };
 
 #endif
