@@ -24,7 +24,7 @@
 
 #include "utils.hpp"
 #include "types.hpp"
-#include "capture.hpp"
+#include "capture_with_motion.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
 #include "edge_based_registration.hpp"
@@ -103,6 +103,25 @@ void capture(const std::string prefix, int frames) {
     pipe.stop();
 }
 
+void capture_with_accel(const std::string prefix, int frames){
+	rs2::pipeline pipe;
+
+  rs2::config config;
+
+  config.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
+  config.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F);
+  config.enable_stream(RS2_STREAM_INFRARED, 1280, 720, RS2_FORMAT_Y8, 15);
+  config.enable_stream(RS2_STREAM_COLOR,1280, 720, RS2_FORMAT_BGR8, 15);
+  config.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 15);
+	pipe.start(config);
+
+	auto clouds = get_clouds_camera_motion(pipe, frames);
+	for (int frame = 0; frame < frames; frame++){
+		pcl::io::savePCDFileBinary("dataset/" + prefix + "-" + std::to_string(frame), *clouds[frame]);
+	}
+	pipe.stop();
+}
+
 void registration(const std::string prefix, int frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
 
@@ -179,7 +198,7 @@ int main(int argc, char *argv[]) try {
         std::string dataset_prefix = argv[2];
         int frames = atoi(argv[3]);
 
-        capture(dataset_prefix, frames);
+        capture_with_accel(dataset_prefix, frames);
 
         return 0;
     } else if (strcmp(argv[1], "--registration") == 0) {
