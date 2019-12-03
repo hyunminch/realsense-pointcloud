@@ -87,44 +87,44 @@ cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& 
     return cloud; // PCL RGB Point Cloud generated
 }
 
-std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
-    int _nr_frames = nr_frames;
+// std::vector<cloud_pointer> get_clouds(rs2::pipeline pipe, int nr_frames) {
+//     int _nr_frames = nr_frames;
 
-    std::vector<cloud_pointer> clouds;
+//     std::vector<cloud_pointer> clouds;
 
-    rs2::pointcloud pc;
-    rs2::points points;
+//     rs2::pointcloud pc;
+//     rs2::points points;
 
-    while (_nr_frames--) {
-        std::cout << "Capturing..." << std::endl;
+//     while (_nr_frames--) {
+//         std::cout << "Capturing..." << std::endl;
 
-        // Wait for the next set of frames from the camera
-        auto frames = pipe.wait_for_frames();
+//         // Wait for the next set of frames from the camera
+//         auto frames = pipe.wait_for_frames();
 
-        auto color = frames.get_color_frame();
+//         auto color = frames.get_color_frame();
 
-        // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
-        if (!color)
-            color = frames.get_infrared_frame();
+//         // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
+//         if (!color)
+//             color = frames.get_infrared_frame();
 
-        // Tell pointcloud object to map to this color frame
-        pc.map_to(color);
+//         // Tell pointcloud object to map to this color frame
+//         pc.map_to(color);
 
-        auto depth = frames.get_depth_frame();
+//         auto depth = frames.get_depth_frame();
 
-        // Generate the pointcloud and texture mappings
-        points = pc.calculate(depth);
+//         // Generate the pointcloud and texture mappings
+//         points = pc.calculate(depth);
 
-        auto pcl = convert_to_pcl(points, color);
-        clouds.push_back(pcl);
+//         auto pcl = convert_to_pcl(points, color);
+//         clouds.push_back(pcl);
 
-        std::cout << "Capture end" << std::endl;
+//         std::cout << "Capture end" << std::endl;
 
-        sleep(2);
-    }
+//         sleep(2);
+//     }
 
-    return clouds;
-}
+//     return clouds;
+// }
 
 void register_glfw_callbacks(window& app, state& app_state) {
     app.on_left_mouse = [&](bool pressed) {
@@ -276,14 +276,14 @@ main (int argc, char** argv)
 	rs2::pipeline pipe;
 	pipe.start();
 
-	auto clouds = get_clouds(pipe, nr_frames);
+	// auto clouds = get_clouds(pipe, nr_frames);
 
 	cloud_pointer ndt_result(new point_cloud);
 	cloud_pointer sum(new point_cloud);
 	Eigen::Matrix4f GlobalTransform = Eigen::Matrix4f::Identity(), pairTransform;
     for (int i = 1; i < nr_frames; i++) {
         cloud_pointer temp(new point_cloud);
-        ndtAlign(clouds[i - 1], clouds[i], temp, pairTransform, true);
+        // ndtAlign(clouds[i - 1], clouds[i], temp, pairTransform, true);
 
         //transform current pair into the global transform
         pcl::transformPointCloud (*temp, *ndt_result, GlobalTransform);

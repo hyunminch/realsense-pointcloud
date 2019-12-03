@@ -1,5 +1,6 @@
 #include <librealsense2/rs.hpp>
 #include <vector>
+#include <chrono>
 
 #include "types.hpp"
 #include "utils.hpp"
@@ -120,76 +121,150 @@ rgb_point_cloud_pointer get_cloud(rs2::pipeline pipe) {
     return pcl;
 }
 
-std::vector<std::pair<rgb_point_cloud_pointer, float3>> get_clouds(rs2::pipeline pipe, int nr_frames) {
-    std::vector<std::pair<rgb_point_cloud_pointer, float3>> clouds;
+std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(/* rs2::pipeline pipe, */int nr_frames) {
+    std::vector<rgb_point_cloud_pointer> clouds;
+    std::vector<float3> thetas;
 
+    rs2::pipeline pipe;
+    rs2::config cfg;
     rs2::pointcloud pc;
     rs2::points points;
 
+    std::mutex mutex;
+
     rotation_estimator algo;
 
+    cfg.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
+    cfg.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F);
+    cfg.enable_stream(RS2_STREAM_INFRARED, 1280, 720, RS2_FORMAT_Y8, 6);
+    cfg.enable_stream(RS2_STREAM_COLOR,1280, 720, RS2_FORMAT_BGR8, 6);
+    cfg.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 6);
+
+    auto time = std::chrono::system_clock::now();
+
+    int dummy_idx = 0;
+    auto callback = [&](rs2::frame frame) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (dummy_idx < 30) {
+            dummy_idx++;
+            return;
+        }
+
+        if (clouds.size() >= nr_frames) {
+            pipe.stop();
+            return;
+        }
+
+        if (rs2::frameset fs = frame.as<rs2::frameset>()) {
+            auto now = std::chrono::system_clock::now();
+            if ((time - now).count() < 2.0) {
+                return;
+            } 
+
+            time = now;
+
+            // Get computed rotation
+            float3 theta = algo.get_theta();
+            // Save current theta
+            thetas.push_back(algo.get_theta());
+            // Print theta
+            cout << "THETA: " 
+                << theta.x << ", " 
+                << theta.y << ", "
+                << theta.z << endl;
+            thetas.push_back(theta);
+
+            auto color = fs.get_color_frame();
+            
+            // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
+            if (!color)
+                color = fs.get_infrared_frame();
+
+            pc.map_to(color);
+
+            auto depth = fs.get_depth_frame();
+
+            // Generate the pointcloud and texture mappings
+            points = pc.calculate(depth);
+
+            auto pcl = convert_to_pcl(points, color);
+            auto filtered = filter_pcl(pcl);
+
+            std::cout << "  " << "[RS] Successfully filtered" << std::endl;
+
+            clouds.push_back(pcl);
+
+            std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
+
+        } else {
+            // Stream that bypass synchronization (such as IMU) will produce single frames
+
+            // Cast the frame that arrived to motion frame
+            auto motion = frame.as<rs2::motion_frame>();
+            // If casting succeeded and the arrived frame is from gyro stream
+            if (motion && motion.get_profile() == RS2_STREAM_GYRO && motion.get_profile().format() == RS2_FORMAT_MOTION_XYZ32F) {
+                // Get the timestamp that arrived to motion frame
+                double ts = motion.get_timestamp();
+                // Get gyro measures
+                rs2_vector gyro_data = motion.get_motion_data();
+                // Call function that computes the angle of motion based on the retrieved measures
+                algo.process_gyro(gyro_data, ts);
+            }
+
+            if (motion && motion.get_profile() == RS2_STREAM_ACCEL && motion.get_profile().format() == RS2_FORMAT_MOTION_XYZ32F) {
+                // Get accelerometer measures
+                rs2_vector accel_data = motion.get_motion_data();
+                // Call function that computes the angle of motion based on the retrieved measures
+                algo.process_accel(accel_data);
+            }
+        }
+    };
+
+    time = std::chrono::system_clock::now();
+    pipe.start(cfg, callback);
+
     // To minimize unknown color issues
-    for (int i = 0; i < 30; i++)
-        auto frames = pipe.wait_for_frames();
+    // for (int i = 0; i < 30; i++)
+    //     auto frames = pipe.wait_for_frames();
 
-    for (int frame = 0; frame < nr_frames; frame++) {
-        std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
+    // for (int frame = 0; frame < nr_frames; frame++) {
+    //     std::cout << "[RS] Capturing frame [" << frame << "]" << std::endl;
 
-        // Wait for the next set of frames from the camera
-        auto frames = pipe.wait_for_frames();
+    //     // Wait for the next set of frames from the camera
+    //     auto frames = pipe.wait_for_frames();
+    //     // Get computed rotation
+    //     float3 theta = algo.get_theta();
+    //     cout << "THETA: " 
+    //          << theta.x << ", " 
+    //          << theta.y << ", "
+    //          << theta.z << endl;
+    //     thetas.push_back(theta);
 
-        // Get a frame from gyro stream
-        auto gyro_frame = frames.first_or_default(RS2_STREAM_GYRO);
-        // Cast to motion frame
-        auto gyro_motion = gyro_frame.as<rs2::motion_frame>();
-        // Get the timestamp that arrived to motion frame
-        double ts = gyro_motion.get_timestamp();
-        // Get gyro measures
-        auto gyro_data = gyro_motion.get_motion_data();
-        // Call function that computes the angle of motion based on the retrieved measures
-        algo.process_gyro(gyro_data, ts);
+    //     auto color = frames.get_color_frame();
 
-        // Get a frame from accelerometer stream
-        auto accel_frame = frames.first_or_default(RS2_STREAM_ACCEL);
-        // Cast to motion frame
-        auto accel_motion = accel_frame.as<rs2::motion_frame>();
-        // Get accelerometer measures
-        auto accel_data = accel_motion.get_motion_data();
-        // Call function that computes the angle of motion based on the retrieved measures
-        algo.process_accel(accel_data);
+    //     // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
+    //     if (!color)
+    //         color = frames.get_infrared_frame();
 
-        // Get computed rotation
-        float3 theta = algo.get_theta();
-        cout << "THETA: " 
-             << theta.x << ", " 
-             << theta.y << ", "
-             << theta.z << endl;
+    //     // Tell pointcloud object to map to this color frame
+    //     pc.map_to(color);
 
-        auto color = frames.get_color_frame();
+    //     auto depth = frames.get_depth_frame();
 
-        // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
-        if (!color)
-            color = frames.get_infrared_frame();
+    //     // Generate the pointcloud and texture mappings
+    //     points = pc.calculate(depth);
 
-        // Tell pointcloud object to map to this color frame
-        pc.map_to(color);
+    //     auto pcl = convert_to_pcl(points, color);
+    //     auto filtered = filter_pcl(pcl);
 
-        auto depth = frames.get_depth_frame();
+    //     std::cout << "  " << "[RS] Successfully filtered" << std::endl;
 
-        // Generate the pointcloud and texture mappings
-        points = pc.calculate(depth);
+    //     clouds.push_back(pcl);
 
-        auto pcl = convert_to_pcl(points, color);
-        auto filtered = filter_pcl(pcl);
+    //     std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
 
-        std::cout << "  " << "[RS] Successfully filtered" << std::endl;
+    //     sleep(2);
+    // }
 
-        clouds.push_back(std::make_pair(pcl, theta));
-
-        std::cout << "[RS] Captured frame [" << frame << "]" << std::endl;
-
-        sleep(2);
-    }
-
-    return clouds;
+    return std::make_pair(clouds, thetas);
 }
