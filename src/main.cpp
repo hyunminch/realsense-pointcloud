@@ -131,7 +131,7 @@ void capture(const std::string prefix, int frames) {
     //     }
     // });
 
-    auto pair = get_clouds(/* pipe, */frames);
+    auto pair = get_clouds(pipe, frames);
     auto clouds = pair.first;
     auto thetas = pair.second;
     for (int frame = 0; frame < frames; frame++) {
@@ -211,7 +211,7 @@ void capture_and_registration(int frames) {
     // Start streaming with default recommended configuration
     pipe.start();
 
-    auto pair = get_clouds(/* pipe, */frames);
+    auto pair = get_clouds(pipe, frames);
     auto clouds = pair.first;
     auto thetas = pair.second;
 
@@ -235,7 +235,11 @@ void capture_and_registration(int frames) {
 }
 
 int main(int argc, char *argv[]) try {
-    if (strcmp(argv[1], "--capture") == 0) {
+    if (argc == 1) {
+        capture_and_registration(3);
+
+        return 0;
+    } else if (strcmp(argv[1], "--capture") == 0) {
         std::string dataset_prefix = argv[2];
         int frames = atoi(argv[3]);
 
@@ -256,6 +260,7 @@ int main(int argc, char *argv[]) try {
         return 0;
     } else {
         int frames = atoi(argv[1]);
+
         capture_and_registration(frames);
 
         return 0;
