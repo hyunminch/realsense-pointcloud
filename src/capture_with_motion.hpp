@@ -103,6 +103,18 @@ std::vector<rgb_point_cloud_pointer> get_clouds_camera_motion(rs2::pipeline pipe
 			auto camera_gyro = frames.first(RS2_STREAM_GYRO).as<rs2::motion_frame>();
 			auto accel_data = camera_accel.get_motion_data();
 			cout << "Camera Accel data : "<<accel_data<<endl;
+
+			Eigen::Matrix4f transform = Eigen::Matrix4f::Identity();
+
+			camera_rotate.process_accel(accel_data);
+			float theta = (float)((float)(camera_rotate.get_theta().x)/((float)(camera_rotate.get_theta().z)));
+			float tanTheta = (float)(atan((double)(theta)));
+
+			transform (0,0) = std::cos(tanTheta);
+			transform (0,1) = -sin(tanTheta);
+			transform (1,0) = sin(tanTheta);
+			transform(1,1) = cos(tanTheta);
+
 			auto gyro_data = camera_gyro.get_motion_data();
 			cout << "Camera gyro data : "<<gyro_data<<endl;
 			auto color = frames.get_color_frame();
@@ -114,8 +126,10 @@ std::vector<rgb_point_cloud_pointer> get_clouds_camera_motion(rs2::pipeline pipe
 
 			auto pcl = convert_to_pcl(points, color);
 			auto filtered = filter_pcl(pcl);
+			auto transformed = filtered;
+			pcl::transformPointCloud(*filtered, *transformed, transform);
 			std::cout<<"  [RS] Successfully filtered" << std::endl;
-			clouds.push_back(filtered);
+			clouds.push_back(transformed);
 			std::cout << "[RS] Captured frame[" << f<<"]"<<std::endl;
 			sleep(2);
 		}	
