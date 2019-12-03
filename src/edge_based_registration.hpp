@@ -8,7 +8,6 @@ class EdgeBasedRegistration: public TwoPhaseRegistrationScheme {
 public:
 //    pcl::NormalEstimationOMP<pcl::PointXYZRGB, pcl::Normal> ne;
     pcl::OrganizedEdgeFromRGBNormals<pcl::PointXYZRGB, pcl::Normal, pcl::Label> oed;
-    
 
     EdgeBasedRegistration(): TwoPhaseRegistrationScheme() {}
     EdgeBasedRegistration(std::vector<float3>& input_thetas): TwoPhaseRegistrationScheme() {
@@ -107,13 +106,13 @@ public:
             float3 absolute_theta = thetas[0] * -1.0;
             thetas[cloud_idx].add(absolute_theta.x, absolute_theta.y, absolute_theta.z);
             // thetas[cloud_idx] *= -1.0;
-            cout << "RELATIVE THETA: " 
-                 << thetas[cloud_idx].x << ", " 
+            cout << "RELATIVE THETA: "
+                 << thetas[cloud_idx].x << ", "
                  << thetas[cloud_idx].y << ", "
                  << thetas[cloud_idx].z << endl;
 
             // Eigen::AngleAxisf init_rotation_x(thetas[cloud_idx].x, Eigen::Vector3f::UnitX());
-            Eigen::AngleAxisf init_rotation_y(thetas[cloud_idx].y, Eigen::Vector3f::UnitY());
+            Eigen::AngleAxisf init_rotation_y(-thetas[cloud_idx].y, Eigen::Vector3f::UnitY());
             // Eigen::AngleAxisf init_rotation_z(thetas[cloud_idx].z, Eigen::Vector3f::UnitZ());
             // auto init_rotation = init_rotation_x + init_rotation_y + init_rotation_z;
             Eigen::Translation3f init_translation(0,0,0);
