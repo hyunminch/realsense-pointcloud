@@ -88,37 +88,46 @@ std::vector<rgb_point_cloud_pointer> get_clouds_camera_motion(rs2::pipeline pipe
 	rs2::pointcloud pc;
 	rs2::points points;
 
-	rs2::config config;
-
-	config.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
-	config.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F);
-	config.enable_stream(RS2_STREAM_INFRARED, 1280, 720, RS2_FORMAT_Y8, 15);
-	config.enable_stream(RS2_STREAM_COLOR,1280, 720, RS2_FORMAT_BGR8, 15);
-	config.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 15);
 	rotation_estimator camera_rotate;
-	pipe.start(config);
+	for (int i = 0; i < 30; i++)
+        auto frames = pipe.wait_for_frames();
+
+
 		for (int f = 0; f < nr_frames; f++){
+			std::cout << "[RS] Capturing frame [" << f << "]" << std::endl;
 			auto frames = pipe.wait_for_frames();
 			auto camera_accel = frames.first(RS2_STREAM_ACCEL).as<rs2::motion_frame>();
 			auto camera_gyro = frames.first(RS2_STREAM_GYRO).as<rs2::motion_frame>();
 			auto accel_data = camera_accel.get_motion_data();
-			cout << "Camera Accel data : "<<accel_data<<endl;
+			//cout << "Camera Accel data : "<<accel_data<<endl;
+
+			Eigen::Matrix4f transform = Eigen::Matrix4f::Identity();
+
+			camera_rotate.process_accel(accel_data);
+			float theta = (float)((float)(camera_rotate.get_theta().x)/((float)(camera_rotate.get_theta().z)));
+			float tanTheta = (float)(atan((double)(theta)));
+
+			transform (0,0) = std::cos(tanTheta);
+			transform (0,1) = -sin(tanTheta);
+			transform (1,0) = sin(tanTheta);
+			transform(1,1) = cos(tanTheta);
+
 			auto gyro_data = camera_gyro.get_motion_data();
-			cout << "Camera gyro data : "<<gyro_data<<endl;
+			//cout << "Camera gyro data : "<<gyro_data<<endl;
 			auto color = frames.get_color_frame();
-			cout << "[RS] Capture start"<<endl;
 			if (!color) color = frames.get_infrared_frame();
 			pc.map_to(color);
 			auto depth = frames.get_depth_frame();
 			points = pc.calculate(depth);
 
 			auto pcl = convert_to_pcl(points, color);
-			auto filtered = filter_pcl(pcl);
+			auto transformed = pcl;
+			pcl::transformPointCloud(*pcl, *transformed, transform);
+			auto filtered = filter_pcl(transformed);
 			std::cout<<"  [RS] Successfully filtered" << std::endl;
 			clouds.push_back(filtered);
 			std::cout << "[RS] Captured frame[" << f<<"]"<<std::endl;
 			sleep(2);
 		}	
-	pipe.stop();
 	return clouds;
 }
