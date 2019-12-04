@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
-project(slam)
+project(rs-pcl)
 
 set(CMAKE_CXX_STANDARD 14)
 
-add_executable(slam main.cpp)
+add_executable(rs-pcl ./src/main.cpp)
 
 find_package(realsense2)
 find_package(OpenGL REQUIRED)
