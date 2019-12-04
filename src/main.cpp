@@ -24,7 +24,7 @@
 
 #include "utils.hpp"
 #include "types.hpp"
-#include "capture.hpp"
+#include "capture_with_motion.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
 #include "edge_based_registration.hpp"
@@ -234,7 +234,7 @@ int main(int argc, char *argv[]) try {
         std::string dataset_prefix = argv[2];
         int frames = atoi(argv[3]);
 
-        capture(dataset_prefix, frames);
+        capture_with_accel(dataset_prefix, frames);
 
         return 0;
     } else if (strcmp(argv[1], "--registration") == 0 && argc == 4) {
