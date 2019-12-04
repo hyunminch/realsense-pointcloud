@@ -13,6 +13,9 @@ public:
         thetas = input_thetas;
         use_imu = true;
     }
+    EdgeBasedRegistration(float usr_def_rads): TwoPhaseRegistrationScheme() {
+        rads = usr_def_rads;
+    }
 
     rgb_point_cloud_pointer extract_features(rgb_point_cloud_pointer cloud) {
         pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
@@ -61,7 +64,6 @@ public:
         pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
         pcl::ApproximateVoxelGrid<rgb_point> approx_voxel_grid;
 
-        float rads = 0.523599;
         float acc_rads = 0.;
 
         pcl::NormalDistributionsTransform<pcl::PointXYZRGB, pcl::PointXYZRGB> ndt;
@@ -112,7 +114,7 @@ public:
                 ndt.align(*aligned, init_guess);
                 std::cout << "OK" << std::endl;
             } else {
-                acc_rads -= rads;
+                acc_rads += rads;
 
                 Eigen::AngleAxisf init_rotation_y_static(acc_rads, Eigen::Vector3f::UnitY());
                 Eigen::Matrix4f init_guess = (init_translation * init_rotation_y_static).matrix();
@@ -148,6 +150,7 @@ public:
 private:
     bool use_imu = false;
     std::vector<float3> thetas;
+    float rads = -0.523599;
 };
 
 #endif
