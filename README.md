@@ -1,5 +1,5 @@
 # realsense-pointcloud
-A command-line app that can capture RGBD images from Intel RealSense D435i and perform registration on them based on RGB edge extraction, rotation estimation through D435i's IMU, Normal Distributions Transform (NDT), and Iterative Closest Point algorithm.
+A command-line app that can capture RGBD images from Intel RealSense D435i and perform registration on them based on RGB edge extraction, rotation estimation through D435i's IMU, Normal Distributions Transform (NDT), and Iterative Closest Point (ICP) algorithm.
 
 Our goal is to be able to create 3D models of indoor scenes with abundant RGB edges.
 
@@ -18,9 +18,9 @@ make all
 
 ## Run
 ```bash
-./rs-pcl [OPTIONS] NR_CLOUDS
+./rs-pcl OPTIONS NR_CLOUDS
 ```
-### Options:
+### Option:
 #### --all
 capture and perform registration for NR_CLOUDS time using dynamic rotation estimation with the IMU of RealSense D435i.
 #### --capture FILENAME
@@ -40,17 +40,17 @@ print this help
 ```
 2. Capture 3 point clouds and save them to dataset/test-0.pcd, dataset/test-1.pcd, dataset/test-2.pcd
 ```bash
-rs-pcl --capture test 3
+./rs-pcl --capture test 3
 ```
 3. Perform registration using default rotation estimation on 3 point clouds saved at dataset/test-0.pcd, dataset/test-1.pcd, dataset/test-2.pcd
 ```bash
-rs-pcl --registration test 3
+./rs-pcl --registration test 3
 ```
 4. Perform registration using rotation degree of 45 on 3 point clouds saved at dataset/test-0.pcd, dataset/test-1.pcd, dataset/test-2.pcd
 ```bash
-rs-pcl --registration test 45 3
+./rs-pcl --registration test 45 3
 ```
 5. View pointcloud saved at test.pcd
 ```bash
-rs-pcl --view test
+./rs-pcl --view test
 ```
