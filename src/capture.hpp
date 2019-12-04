@@ -6,7 +6,7 @@
 #include "types.hpp"
 #include "utils.hpp"
 
-#include "capture_with_motion.hpp"
+#include "rotation_estimator.hpp"
 
 std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coordinate texture_coords) {
     // Get Width and Height coordinates of texture
@@ -90,38 +90,6 @@ rgb_point_cloud_pointer filter_pcl(rgb_point_cloud_pointer cloud) {
     return cloud_voxel_grid;
 }
 
-rgb_point_cloud_pointer get_cloud(rs2::pipeline pipe) {
-    rs2::pointcloud pc;
-    rs2::points points;
-    rs2::spatial_filter spatial_filter;
-
-    spatial_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.25f);
-
-    for (int i = 0; i < 100; i++)
-        auto frames = pipe.wait_for_frames();
-
-    auto frames = pipe.wait_for_frames();
-    auto color = frames.get_color_frame();
-
-    // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
-    if (!color)
-        color = frames.get_infrared_frame();
-
-    // Tell pointcloud object to map to this color frame
-    pc.map_to(color);
-
-    auto depth = frames.get_depth_frame();
-    auto filtered_depth = spatial_filter.process(depth);
-
-    // Generate the pointcloud and texture mappings
-    points = pc.calculate(filtered_depth);
-
-    auto pcl = convert_to_pcl(points, color);
-    auto filtered = filter_pcl(pcl);
-
-    return pcl;
-}
-
 std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(rs2::pipeline pipe, int nr_frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
     std::vector<rs2::frameset> framesets;
@@ -132,12 +100,13 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(
 
     std::mutex mutex;
 
-    rotation_estimator algo;
+    RotationEstimator algo;
 
     int frame = 0;
 
     auto time = std::chrono::system_clock::now();
 
+    std::cout << "[RS]  Starting capture sequence..." << std::endl;
     while (frame < nr_frames) {
         auto frameset = pipe.wait_for_frames();
 
@@ -155,21 +124,20 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(
         // Get computed rotation
         float3 theta = algo.get_theta();
 
-        cout << "[RS] Theta: " << theta.x << ", " << theta.y << ", " << theta.z << endl;
-
         auto now = std::chrono::system_clock::now();
         if ((now - time).count() < 2000000000)
             continue;
 
         time = now;
 
+        std::cout << "[RS]    Captured frame [" << frame << "]" << std::endl;
         framesets.push_back(frameset);
         thetas.push_back(theta);
 
         ++frame;
     }
 
-    std::cout << "[RS] Converting framesets to point clouds..." << std::endl;
+    std::cout << "[RS]  Converting framesets to point clouds..." << std::endl << std::flush;
 
     for (auto frameset: framesets) {
         auto color = frameset.get_color_frame();
@@ -186,7 +154,6 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(
         points = pc.calculate(depth);
 
         auto pcl = convert_to_pcl(points, color);
-        auto filtered = filter_pcl(pcl);
 
         clouds.push_back(pcl);
     }
