@@ -31,10 +31,14 @@ public:
         std::vector<std::pair<rgb_point_cloud_pointer, rgb_point_cloud_pointer>> feature_clouds;
 
         // Phase 1
-        for (auto& cloud: clouds)
+        for (auto& cloud: clouds) {
+            std::cout << "[PCL] Extracting features..." << std::flush;
             feature_clouds.push_back(std::make_pair(extract_features(cloud), cloud));
+            std::cout << "OK" << std::endl;
+        }
 
         // Phase 2
+        std::cout << "[PCL] Performing global registration..." << std::endl;
         return global_registration(feature_clouds); 
     }
 };
