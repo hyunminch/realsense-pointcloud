@@ -29,7 +29,6 @@
 #include "incremental_icp.hpp"
 #include "edge_based_registration.hpp"
 #include "pairwise_icp.hpp"
-// #include "ndt.hpp"
 
 #include "filters/edge_filter.hpp"
 
@@ -98,59 +97,27 @@ void capture(const std::string prefix, int frames) {
     rs2::pipeline pipe;
     rs2::config cfg;
 
-    cfg.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F);
-    cfg.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F);
-    cfg.enable_stream(RS2_STREAM_INFRARED, 1280, 720, RS2_FORMAT_Y8, 6);
-    cfg.enable_stream(RS2_STREAM_COLOR,1280, 720, RS2_FORMAT_BGR8, 6);
-    cfg.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 6);
-
     pipe.start(cfg);
-
-    // pipe.start(cfg, [&](rs2::frame frame) {
-    //     // Cast the frame that arrived to motion frame
-    //     auto motion = frame.as<rs2::motion_frame>();
-    //     // If casting succeeded and the arrived frame is from gyro stream
-    //     if (motion && motion.get_profile() == RS2_STREAM_GYRO && motion.get_profile().format() == RS2_FORMAT_MOTION_XYZ32F) {
-    //         // Get the timestamp that arrived to motion frame
-    //         double ts = motion.get_timestamp();
-    //         // Get gyro measures
-    //         rs2_vector gyro_data = motion.get_motion_data();
-    //         // Call function that computes the angle of motion based on the retrieved measures
-    //         algo.process_gyro(gyro_data, ts);
-    //     }
-
-    //     if (motion && motion.get_profile() == RS2_STREAM_ACCEL && motion.get_profile().format() == RS2_FORMAT_MOTION_XYZ32F) {
-    //         // Get accelerometer measures
-    //         rs2_vector accel_data = motion.get_motion_data();
-    //         // Call function that computes the angle of motion based on the retrieved measures
-    //         algo.process_accel(accel_data);
-    //     }
-    // });
 
     auto pair = get_clouds(pipe, frames);
     auto clouds = pair.first;
     auto thetas = pair.second;
-    for (int frame = 0; frame < frames; frame++) {
-        pcl::io::savePCDFileBinary("dataset/" + prefix + "-" + std::to_string(frame), *clouds[frame]);
-    }
+    for (int frame = 0; frame < frames; frame++)
+        pcl::io::savePCDFileBinary("dataset/" + prefix + "-" + std::to_string(frame) + ".pcd", *clouds[frame]);
 
     pipe.stop();
 }
 
-void registration(const std::string prefix, int frames) {
+void registration(const std::string prefix, EdgeBasedRegistration *scheme, int frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
 
     for (int frame = 0; frame < frames; frame++) {
         rgb_point_cloud_pointer cloud_ptr(new rgb_point_cloud);
-        pcl::io::loadPCDFile("dataset/" + prefix + "-" + std::to_string(frame), *cloud_ptr);
+        pcl::io::loadPCDFile("dataset/" + prefix + "-" + std::to_string(frame) + ".pcd", *cloud_ptr);
         clouds.push_back(cloud_ptr);
     }
 
-//    auto incremental_icp = new IncrementalICP();
-//    auto result = incremental_icp->registration(clouds);
-
-    auto edge_based_registration = new EdgeBasedRegistration();
-    auto result = edge_based_registration->registration(clouds);
+    auto result = scheme->registration(clouds);
 
     pcl::io::savePCDFileBinary("dataset/" + prefix + "-registration", *result);
 
@@ -168,7 +135,7 @@ void registration(const std::string prefix, int frames) {
 
 void viewer(std::string name) {
     rgb_point_cloud_pointer cloud(new rgb_point_cloud);
-    pcl::io::loadPCDFile("dataset/" + name, *cloud);
+    pcl::io::loadPCDFile("dataset/" + name + ".pcd", *cloud);
 
     // Create a simple OpenGL window for rendering:
     window app(1280, 720, "RealSense PCL PointCloud Example");
@@ -185,10 +152,12 @@ void viewer(std::string name) {
 void capture_and_registration(int frames) {
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
+
     // Start streaming with default recommended configuration
     pipe.start();
-
     auto pair = get_clouds(pipe, frames);
+    pipe.stop();
+
     auto clouds = pair.first;
     auto thetas = pair.second;
 
@@ -211,36 +180,95 @@ void capture_and_registration(int frames) {
     }
 }
 
+void help() {
+    std::cout << "Usage: rs-pcl [OPTION] NR_CLOUDS..." << std::endl
+              << "Capture, perform registration, or do both for NR_CLOUDS time." << std::endl
+              << "Example: rs-pcl --all 4" << std::endl
+              << std::endl
+              << "Options:" << std::endl
+              << "  --all" << std::endl
+              << "      capture and perform registration for NR_CLOUDS time" << std::endl
+              << "      using dynamic rotation estimation with the IMU of RealSense D435i." << std::endl
+              << "  --capture FILENAME" << std::endl
+              << "      capture clouds for NR_CLOUDS time and save them to" << std::endl
+              << "      dataset/${FILENAME}-${CLOUD_IDX}.pcd" << std::endl
+              << "      CLOUD_IDX is given based on the order of capture" << std::endl
+              << "  --registration FILENAME [ROTATION_DEG]" << std::endl  
+              << "      perform registration for NR_CLOUDS time on files named" << std::endl
+              << "      dataset/${FILENAME}-${CLOUD_IDX}.pcd" << std::endl
+              << "      using estimated rotation degree of ROTATION_DEG as initial guesses." << std::endl
+              << "      Default ROTATION_DEG: -30 degrees" << std::endl
+              << "  --view FILENAME" << std::endl
+              << "      view pointcloud saved at dataset/${FILENAME}.pcd" << std::endl
+              << "  --help" << std:: endl
+              << "      print this help"
+              << std::endl
+              << std::endl
+              << "Examples:" << std::endl
+              << "  capture 3 point clouds and perform registration using dynamic rotation estimation" << std::endl
+              << "  $ rs-pcl --all 3" << std::endl
+              << std::endl
+              << "  capture 3 point clouds and save them to" << std::endl 
+              << "    dataset/test-0.pcd, dataset/test-1.pcd, dataset/test-2.pcd" << std::endl
+              << "  $ rs-pcl --capture test 3" << std::endl
+              << std::endl
+              << "  perform registration using default rotation estimation on 3 point clouds saved at" << std::endl
+              << "    dataset/test-0.pcd, dataset/test-1.pcd, dataset/test-2.pcd" << std::endl
+              << "  $ rs-pcl --registration test 3" << std::endl
+              << std::endl
+              << "  perform registration using rotation degree of 45 on 3 point clouds saved at" << std::endl
+              << "    dataset/test-0.pcd, dataset/test-1.pcd, dataset/test-2.pcd" << std::endl
+              << "  $ rs-pcl --registration test 45 3" << std::endl
+              << std::endl
+              << "  view pointcloud saved at test.pcd" << std::endl
+              << "  $ rs-pcl --view test" << std::endl
+              << std::endl;
+}
+
 int main(int argc, char *argv[]) try {
     if (argc == 1) {
-        capture_and_registration(3);
+        help();        
 
-        return 0;
-    } else if (strcmp(argv[1], "--capture") == 0) {
+        return EXIT_FAILURE;
+    } else if (strcmp(argv[1], "--capture") == 0 && argc == 4) {
         std::string dataset_prefix = argv[2];
         int frames = atoi(argv[3]);
 
         capture(dataset_prefix, frames);
 
         return 0;
-    } else if (strcmp(argv[1], "--registration") == 0) {
+    } else if (strcmp(argv[1], "--registration") == 0 && argc == 4) {
         std::string dataset_prefix = argv[2];
         int frames = atoi(argv[3]);
 
-        registration(dataset_prefix, frames);
+        auto edge_based_registration = new EdgeBasedRegistration();
+        registration(dataset_prefix, edge_based_registration, frames);
 
         return 0;
-    } else if (strcmp(argv[1], "--view") == 0)  {
+    } else if (strcmp(argv[1], "--registration") == 0 && argc == 5) {
+        std::string dataset_prefix = argv[2];
+        int rotation_deg = atoi(argv[3]);
+        float rads = (rotation_deg / 180.0) * M_PI;
+        int frames = atoi(argv[4]);
+
+        auto edge_based_registration = new EdgeBasedRegistration(rads);
+        registration(dataset_prefix, edge_based_registration, frames);
+
+        return 0;
+    } else if (strcmp(argv[1], "--view") == 0 && argc == 3)  {
         std::string name = argv[2];
         viewer(name);
 
         return 0;
-    } else {
-        int frames = atoi(argv[1]);
+    } else if (strcmp(argv[1], "--all") == 0 && argc == 3) {
+        int frames = atoi(argv[2]);
 
         capture_and_registration(frames);
-
+        
         return 0;
+    } else {
+        help();
+        return EXIT_FAILURE;
     }
 } catch (const rs2::error & e) {
     std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
