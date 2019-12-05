@@ -38,16 +38,38 @@ rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::vid
 
     auto sp = points.get_profile().as<rs2::video_stream_profile>();
 
-    cloud->width  = static_cast<uint32_t>(sp.width());
-    cloud->height = static_cast<uint32_t>(sp.height());
-    cloud->is_dense = false;
-    cloud->points.resize((int)points.size());
+    //cloud->width  = static_cast<uint32_t>(sp.width());
+    //cloud->height = static_cast<uint32_t>(sp.height());
+    cloud->width = static_cast<uint32_t>(sp.width()*3/5);
+		cloud->height = static_cast<uint32_t>(sp.height()*3/5);
+		cloud->is_dense = false;
+    //cloud->points.resize((int)points.size());
+		cloud->points.resize(cloud->width * cloud->height);
 
     auto texture_coordinates = points.get_texture_coordinates();
     auto vertices = points.get_vertices();
 
     // Iterating through all points and setting XYZ coordinates
     // and RGB values
+		int i = 0;
+		for (int r = sp.width()/5; r<sp.width()/5*4;r++){
+			for (int c = sp.height()/5; c<sp.height()/5*4; c++){
+				int temp = c*(sp.width())+r;
+				cloud->points[i].x = vertices[temp].x;
+        cloud->points[i].y = vertices[temp].y;
+        cloud->points[i].z = vertices[temp].z;
+
+        // Obtain color texture for specific point
+        _rgb_texture = rgb_texture(color, texture_coordinates[temp]);
+
+        // Mapping Color (BGR due to Camera Model)
+        cloud->points[i].r = get<2>(_rgb_texture); // Reference tuple<2>
+        cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
+        cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
+				i++;
+			}
+		}
+/*
     for (int i = 0; i < (int)points.size(); i++) {
         cloud->points[i].x = vertices[i].x;
         cloud->points[i].y = vertices[i].y;
@@ -61,7 +83,7 @@ rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::vid
         cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
         cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
     }
-
+*/
     return cloud;
 }
 
@@ -133,7 +155,7 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(
         std::cout << "[RS]    Captured frame [" << frame << "]" << std::endl;
         framesets.push_back(frameset);
         thetas.push_back(theta);
-
+				sleep(2);
         ++frame;
     }
 
