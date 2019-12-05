@@ -234,7 +234,7 @@ int main(int argc, char *argv[]) try {
         std::string dataset_prefix = argv[2];
         int frames = atoi(argv[3]);
 
-        capture_with_accel(dataset_prefix, frames);
+        capture(dataset_prefix, frames);
 
         return 0;
     } else if (strcmp(argv[1], "--registration") == 0 && argc == 4) {
