@@ -155,7 +155,6 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(
         std::cout << "[RS]    Captured frame [" << frame << "]" << std::endl;
         framesets.push_back(frameset);
         thetas.push_back(theta);
-				sleep(2);
         ++frame;
     }
 
