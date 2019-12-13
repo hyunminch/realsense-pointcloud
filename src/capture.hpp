@@ -32,6 +32,7 @@ std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coo
 }
 
 /*
+
 rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
     rgb_point_cloud_pointer cloud(new rgb_point_cloud);
 
@@ -65,6 +66,7 @@ rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::vid
 
     return cloud;
 }
+
 */
 
 rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
@@ -74,18 +76,17 @@ rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::vid
 
     auto sp = points.get_profile().as<rs2::video_stream_profile>();
 
-    cloud->width = static_cast<uint32_t>(sp.width()* 3 / 5);
+    cloud->width = static_cast<uint32_t>(sp.width() * 3 / 5);
     cloud->height = static_cast<uint32_t>(sp.height() * 3 / 5);
-    cloud->is_dense = false;
     cloud->points.resize(cloud->width * cloud->height);
 
     auto texture_coordinates = points.get_texture_coordinates();
     auto vertices = points.get_vertices();
 
     int i = 0;
-    for (int r = sp.width() / 5; r < sp.width() / 5 * 4; r++){
-        for (int c = sp.height() / 5; c < sp.height() / 5 * 4; c++){
-            int vertices_index = c * (sp.width()) + r;
+    for (int r = sp.height() / 5; r < sp.height() / 5 * 4; r++){
+        for (int c = sp.width() / 5; c < sp.width() / 5 * 4; c++){
+            int vertices_index = r * (sp.width()) + c;
 
             cloud->points[i].x = vertices[vertices_index].x;
             cloud->points[i].y = vertices[vertices_index].y;

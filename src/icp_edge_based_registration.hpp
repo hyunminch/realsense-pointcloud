@@ -1,6 +1,8 @@
 #ifndef _ICP_EDGE_BASED_REGISTRATION_H
 #define _ICP_EDGE_BASED_REGISTRATION_H
 
+#include <pcl/io/pcd_io.h>
+
 #include "types.hpp"
 #include "edge_extractor.hpp"
 
@@ -60,6 +62,11 @@ public:
         rgb_point_cloud_pointer downsized_src(new rgb_point_cloud);
         rgb_point_cloud_pointer downsized_dst(new rgb_point_cloud);
 
+        for (int cloud_idx = 0; cloud_idx < (int)clouds.size(); cloud_idx++) {
+            auto edge = clouds[cloud_idx].first;
+            pcl::io::savePCDFileBinary("dataset/edge-" + std::to_string(cloud_idx) + ".pcd", *edge);
+        }
+
         for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
             rgb_point_cloud_pointer aligned(new rgb_point_cloud);
             rgb_point_cloud_pointer icp_aligned(new rgb_point_cloud);
@@ -111,7 +118,8 @@ public:
                 std::cout << std::endl;
             }
         }
-
+        
+        pcl::io::savePCDFileBinary("dataset/edge_cloud.pcd", *target_cloud);
         std::cout << "[PCL] Done" << std::endl;
 
         return global_cloud;

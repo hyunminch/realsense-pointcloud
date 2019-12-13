@@ -64,7 +64,7 @@ void edges(const std::string filename) {
     }
 }
 
-void registration(const std::string prefix, NDTEdgeBasedRegistration *scheme, int frames) {
+void registration(const std::string prefix, RegistrationScheme *scheme, int frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
 
     for (int frame = 0; frame < frames; frame++) {
@@ -118,7 +118,6 @@ void capture_and_registration(int frames, std::string icp_based_filename, std::s
     auto thetas = pair.second;
 
     auto icp_edge_based_registration = new ICPEdgeBasedRegistration(thetas);
-    // auto ndt_edge_based_registration = new NDTEdgeBasedRegistration(thetas);
 
     auto icp_result = icp_edge_based_registration->registration(clouds);
     // auto ndt_result = ndt_edge_based_registration->registration(clouds);
