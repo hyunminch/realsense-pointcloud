@@ -75,10 +75,6 @@ public:
                 float3 absolute_theta = thetas[0] * -1.0;
                 thetas[cloud_idx].add(absolute_theta.x, absolute_theta.y, absolute_theta.z);
 
-                std::cout << "X: " << thetas[cloud_idx].x << std::endl;
-                std::cout << "Y: " << thetas[cloud_idx].y << std::endl;
-                std::cout << "Z: " << thetas[cloud_idx].z << std::endl;
-
                 Eigen::AngleAxisf init_rotation_x_dynamic(thetas[cloud_idx].x, Eigen::Vector3f::UnitZ());
                 Eigen::AngleAxisf init_rotation_y_dynamic(-thetas[cloud_idx].y, Eigen::Vector3f::UnitY());
                 Eigen::AngleAxisf init_rotation_z_dynamic(thetas[cloud_idx].z, Eigen::Vector3f::UnitX());
