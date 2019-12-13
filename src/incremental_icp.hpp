@@ -37,14 +37,6 @@ public:
         pcl::IterativeClosestPoint<rgb_point, rgb_point> icp;
         pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
 
-//        approx_voxel_grid.setLeafSize(0.05, 0.05, 0.05);
-
-//        icp.setMaximumIterations(30);
-//        icp.setMaxCorrespondenceDistance(0.04);
-//        icp.setTransformationEpsilon(1e-9);
-//        icp.setEuclideanFitnessEpsilon(0.1);
-//        icp.addCorrespondenceRejector(cor_rej_trimmed);
-
         rgb_point_cloud_pointer target_cloud = clouds[0];
 
         // these cloud pointers are to be used as temporary variables

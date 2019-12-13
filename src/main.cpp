@@ -27,71 +27,9 @@
 #include "capture.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
-#include "edge_based_registration.hpp"
-#include "pairwise_icp.hpp"
-
-#include "filters/edge_filter.hpp"
-
-using pcl_ptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
-
-float3 theta;
-
-void pair_align(const rgb_point_cloud_pointer cloud_src, const rgb_point_cloud_pointer cloud_tgt, rgb_point_cloud_pointer output, Eigen::Matrix4f &final_transform, bool downsample = false) {
-    rgb_point_cloud_pointer src(new rgb_point_cloud);
-    rgb_point_cloud_pointer tgt(new rgb_point_cloud);
-    pcl::VoxelGrid<rgb_point> grid;
-
-    if (downsample) {
-        grid.setLeafSize(0.2, 0.2, 0.2);
-
-        grid.setInputCloud(cloud_src);
-        grid.filter(*src);
-
-        grid.setInputCloud(cloud_tgt);
-        grid.filter(*tgt);
-    } else {
-        src = cloud_src;
-        tgt = cloud_tgt;
-    }
-
-    rgb_normal_point_cloud::Ptr points_with_normals_src(new rgb_normal_point_cloud);
-    rgb_normal_point_cloud::Ptr points_with_normals_tgt(new rgb_normal_point_cloud);
-
-    pcl::NormalEstimation<rgb_point, rgb_normal_point> norm_est;
-    pcl::search::KdTree<rgb_point>::Ptr tree(new pcl::search::KdTree<rgb_point>());
-    norm_est.setSearchMethod(tree);
-    norm_est.setKSearch(30);
-
-    norm_est.setInputCloud(src);
-    norm_est.compute(*points_with_normals_src);
-    pcl::copyPointCloud(*src, *points_with_normals_src);
-
-    norm_est.setInputCloud(src);
-    norm_est.compute(*points_with_normals_tgt);
-    pcl::copyPointCloud(*tgt, *points_with_normals_tgt);
-
-    pcl::IterativeClosestPointNonLinear<rgb_normal_point, rgb_normal_point> icp;
-    icp.setMaxCorrespondenceDistance(0.05);
-    icp.setTransformationEpsilon(1e-8);
-    icp.setEuclideanFitnessEpsilon(1);
-    icp.setInputSource(points_with_normals_src);
-    icp.setInputTarget(points_with_normals_tgt);
-
-    icp.setMaximumIterations(20);
-    icp.align(*points_with_normals_src);
-    Eigen::Matrix4f Ti = icp.getFinalTransformation();
-
-    // Get the transformation from target to source
-    Eigen::Matrix4f target_to_source = Ti.inverse();
-    
-    // Transform target back in source frame
-    pcl::transformPointCloud(*cloud_tgt, *output, target_to_source);
-
-    // add the source to the transformed target
-    *output += *cloud_src;
-
-    final_transform = target_to_source;
-}
+#include "edge_extractor.hpp"
+#include "ndt_edge_based_registration.hpp"
+#include "icp_edge_based_registration.hpp"
 
 void capture(const std::string prefix, int frames) {
     rs2::pipeline pipe;
@@ -108,7 +46,25 @@ void capture(const std::string prefix, int frames) {
     pipe.stop();
 }
 
-void registration(const std::string prefix, EdgeBasedRegistration *scheme, int frames) {
+void edges(const std::string filename) {
+    rgb_point_cloud_pointer cloud_ptr(new rgb_point_cloud);
+    pcl::io::loadPCDFile("dataset/" + filename, *cloud_ptr);
+    
+    auto result = extract_edge_features(cloud_ptr);
+
+    // Create a simple OpenGL window for rendering:
+    window app(1280, 720, "RealSense PCL PointCloud Example");
+    // Construct an object to manage view state
+    state app_state;
+    // register callbacks to allow manipulation of the pointcloud
+    register_glfw_callbacks(app, app_state);
+
+    while (app) {
+        draw_pointcloud(app, app_state, {result});
+    }
+}
+
+void registration(const std::string prefix, NDTEdgeBasedRegistration *scheme, int frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
 
     for (int frame = 0; frame < frames; frame++) {
@@ -149,7 +105,7 @@ void viewer(std::string name) {
     }
 }
 
-void capture_and_registration(int frames) {
+void capture_and_registration(int frames, std::string icp_based_filename, std::string ndt_based_filename) {
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
 
@@ -161,23 +117,14 @@ void capture_and_registration(int frames) {
     auto clouds = pair.first;
     auto thetas = pair.second;
 
-    auto incremental_icp = new IncrementalICP();
-    // auto result = incremental_icp->registration(clouds);
+    auto icp_edge_based_registration = new ICPEdgeBasedRegistration(thetas);
+    // auto ndt_edge_based_registration = new NDTEdgeBasedRegistration(thetas);
 
-    auto edge_based_registration = new EdgeBasedRegistration(thetas);
-    // edge_based_registration->set_thetas(thetas);
-    auto result = edge_based_registration->registration(clouds);
+    auto icp_result = icp_edge_based_registration->registration(clouds);
+    // auto ndt_result = ndt_edge_based_registration->registration(clouds);
 
-    // Create a simple OpenGL window for rendering:
-    window app(1280, 720, "RealSense PCL PointCloud Example");
-    // Construct an object to manage view state
-    state app_state;
-    // register callbacks to allow manipulation of the pointcloud
-    register_glfw_callbacks(app, app_state);
-
-    while (app) {
-        draw_pointcloud(app, app_state, {result});
-    }
+    pcl::io::savePCDFileBinary("dataset/" + icp_based_filename + ".pcd", *icp_result);
+    // pcl::io::savePCDFileBinary("dataset/" + ndt_based_filename + ".pcd", *ndt_result);
 }
 
 void help() {
@@ -212,6 +159,10 @@ void help() {
               << "    dataset/test-0.pcd, dataset/test-1.pcd, dataset/test-2.pcd" << std::endl
               << "  $ rs-pcl --capture test 3" << std::endl
               << std::endl
+              << "  extract edges from a given pointcloud saved at" << std::endl
+              << "    dataset/testcase.pcd"
+              << "  $ rs-pcl --edges testcase.pcd" << std::endl
+              << std::endl
               << "  perform registration using default rotation estimation on 3 point clouds saved at" << std::endl
               << "    dataset/test-0.pcd, dataset/test-1.pcd, dataset/test-2.pcd" << std::endl
               << "  $ rs-pcl --registration test 3" << std::endl
@@ -237,11 +188,16 @@ int main(int argc, char *argv[]) try {
         capture(dataset_prefix, frames);
 
         return 0;
+    } else if (strcmp(argv[1], "--edges") == 0 && argc == 3) {
+        std::string filename = argv[2];
+        edges(filename);
+        
+        return 0;
     } else if (strcmp(argv[1], "--registration") == 0 && argc == 4) {
         std::string dataset_prefix = argv[2];
         int frames = atoi(argv[3]);
 
-        auto edge_based_registration = new EdgeBasedRegistration();
+        auto edge_based_registration = new NDTEdgeBasedRegistration();
         registration(dataset_prefix, edge_based_registration, frames);
 
         return 0;
@@ -251,7 +207,7 @@ int main(int argc, char *argv[]) try {
         float rads = (rotation_deg / 180.0) * M_PI;
         int frames = atoi(argv[4]);
 
-        auto edge_based_registration = new EdgeBasedRegistration(rads);
+        auto edge_based_registration = new NDTEdgeBasedRegistration(rads);
         registration(dataset_prefix, edge_based_registration, frames);
 
         return 0;
@@ -260,10 +216,13 @@ int main(int argc, char *argv[]) try {
         viewer(name);
 
         return 0;
-    } else if (strcmp(argv[1], "--all") == 0 && argc == 3) {
+    } else if (strcmp(argv[1], "--all") == 0 && argc == 5) {
         int frames = atoi(argv[2]);
+        
+        std::string icp_based_filename = argv[3];
+        std::string ndt_based_filename = argv[4];
 
-        capture_and_registration(frames);
+        capture_and_registration(frames, icp_based_filename, ndt_based_filename);
         
         return 0;
     } else {

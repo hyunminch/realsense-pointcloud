@@ -31,6 +31,7 @@ std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coo
     return { nt1, nt2, nt3 };
 }
 
+/*
 rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
     rgb_point_cloud_pointer cloud(new rgb_point_cloud);
 
@@ -38,38 +39,16 @@ rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::vid
 
     auto sp = points.get_profile().as<rs2::video_stream_profile>();
 
-    //cloud->width  = static_cast<uint32_t>(sp.width());
-    //cloud->height = static_cast<uint32_t>(sp.height());
-    cloud->width = static_cast<uint32_t>(sp.width()*3/5);
-		cloud->height = static_cast<uint32_t>(sp.height()*3/5);
-		cloud->is_dense = false;
-    //cloud->points.resize((int)points.size());
-		cloud->points.resize(cloud->width * cloud->height);
+    cloud->width  = static_cast<uint32_t>(sp.width());
+    cloud->height = static_cast<uint32_t>(sp.height());
+    cloud->is_dense = false;
+    cloud->points.resize((int)points.size());
 
     auto texture_coordinates = points.get_texture_coordinates();
     auto vertices = points.get_vertices();
 
     // Iterating through all points and setting XYZ coordinates
     // and RGB values
-		int i = 0;
-		for (int r = sp.width()/5; r<sp.width()/5*4;r++){
-			for (int c = sp.height()/5; c<sp.height()/5*4; c++){
-				int temp = c*(sp.width())+r;
-				cloud->points[i].x = vertices[temp].x;
-        cloud->points[i].y = vertices[temp].y;
-        cloud->points[i].z = vertices[temp].z;
-
-        // Obtain color texture for specific point
-        _rgb_texture = rgb_texture(color, texture_coordinates[temp]);
-
-        // Mapping Color (BGR due to Camera Model)
-        cloud->points[i].r = get<2>(_rgb_texture); // Reference tuple<2>
-        cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
-        cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
-				i++;
-			}
-		}
-/*
     for (int i = 0; i < (int)points.size(); i++) {
         cloud->points[i].x = vertices[i].x;
         cloud->points[i].y = vertices[i].y;
@@ -83,7 +62,46 @@ rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::vid
         cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
         cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
     }
+
+    return cloud;
+}
 */
+
+rgb_point_cloud_pointer convert_to_pcl(const rs2::points& points, const rs2::video_frame& color) {
+    rgb_point_cloud_pointer cloud(new rgb_point_cloud);
+
+    std::tuple<uint8_t, uint8_t, uint8_t> _rgb_texture;
+
+    auto sp = points.get_profile().as<rs2::video_stream_profile>();
+
+    cloud->width = static_cast<uint32_t>(sp.width()* 3 / 5);
+    cloud->height = static_cast<uint32_t>(sp.height() * 3 / 5);
+    cloud->is_dense = false;
+    cloud->points.resize(cloud->width * cloud->height);
+
+    auto texture_coordinates = points.get_texture_coordinates();
+    auto vertices = points.get_vertices();
+
+    int i = 0;
+    for (int r = sp.width() / 5; r < sp.width() / 5 * 4; r++){
+        for (int c = sp.height() / 5; c < sp.height() / 5 * 4; c++){
+            int vertices_index = c * (sp.width()) + r;
+
+            cloud->points[i].x = vertices[vertices_index].x;
+            cloud->points[i].y = vertices[vertices_index].y;
+            cloud->points[i].z = vertices[vertices_index].z;
+
+            // Obtain color texture for specific point
+            _rgb_texture = rgb_texture(color, texture_coordinates[vertices_index]);
+
+            // Mapping Color (BGR due to Camera Model)
+            cloud->points[i].r = get<2>(_rgb_texture); // Reference tuple<2>
+            cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
+            cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
+            i++;
+        }
+    }
+
     return cloud;
 }
 
@@ -170,12 +188,8 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(
         pc.map_to(color);
 
         auto depth = frameset.get_depth_frame();
-
-        // Generate the pointcloud and texture mappings
         points = pc.calculate(depth);
-
         auto pcl = convert_to_pcl(points, color);
-
         clouds.push_back(pcl);
     }
 
