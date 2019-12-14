@@ -1,6 +1,15 @@
 # realsense-pointcloud
 A command-line app that can capture RGBD images from Intel RealSense D435i and perform registration on them based on RGB edge extraction, rotation estimation through D435i's IMU, Normal Distributions Transform (NDT), and Iterative Closest Point (ICP) algorithm.
 
+<p direction="row" align="center">
+  <img src="./doc/img/full-spec-1.png" width="300" align="center" />
+  <img src="./doc/img/full-spec-2.png" width="300" align="center" />
+</p>
+<p direction="row" align="center">
+  <img src="./doc/img/full-spec-3.png" width="300" align="center" />
+  <img src="./doc/img/full-spec-4.png" width="300" align="center" />
+</p>
+
 Our goal is to be able to create 3D models of indoor scenes with abundant RGB edges.
 
 ## Environment
