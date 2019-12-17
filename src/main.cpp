@@ -26,7 +26,8 @@
 
 #include "utils.hpp"
 #include "types.hpp"
-#include "capture.hpp"
+// #include "capture.hpp"
+#include "capture_opencv.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
 #include "edge_extractor.hpp"
