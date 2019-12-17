@@ -5,6 +5,7 @@
 
 #include "types.hpp"
 #include "edge_extractor.hpp"
+#include "translation_estimator.hpp"
 
 class ICPEdgeBasedRegistration: public TwoPhaseRegistrationScheme {
 public:
@@ -85,6 +86,9 @@ public:
                 Eigen::AngleAxisf init_rotation_x_dynamic(thetas[cloud_idx].x, Eigen::Vector3f::UnitZ());
                 Eigen::AngleAxisf init_rotation_y_dynamic(-thetas[cloud_idx].y, Eigen::Vector3f::UnitY());
                 Eigen::AngleAxisf init_rotation_z_dynamic(thetas[cloud_idx].z, Eigen::Vector3f::UnitX());
+//                TranslationEstimator translation_estimator;
+//                init_translation = translation_estimator.estimate_translation(correspondences, thetas[cloud_idx]);
+//                std::cout << "estimated_translation: " << init_translation.x() << " " << init_translation.y() << " " << init_translation.z() << std::endl;
                 Eigen::Matrix4f init_guess = (init_translation * init_rotation_x_dynamic * init_rotation_y_dynamic * init_rotation_z_dynamic).matrix();
 
                 std::cout << "[PCL]   Performing ICP iteration [" << cloud_idx << "]..." << std::flush;
