@@ -86,7 +86,7 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
         /* this segment actually prints the pointcloud */
         for (auto &p : pc->points) {
             if (p.z) {
-                glColor3f(p.r / 255.0, p.g / 255.0, p.b / 255.0);
+                glColor3f(p.b / 255.0, p.g / 255.0, p.r / 255.0);
                 glVertex3f(p.x, p.y, p.z);
             }
         }

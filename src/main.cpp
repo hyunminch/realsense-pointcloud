@@ -1,4 +1,6 @@
 #include <librealsense2/rs.hpp>
+#include <opencv2/opencv.hpp>
+#include <opencv2/highgui/highgui.hpp>
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -105,7 +107,7 @@ void viewer(std::string name) {
     }
 }
 
-void capture_and_registration(int frames, std::string icp_based_filename, std::string ndt_based_filename) {
+void capture_and_registration(int frames, std::string icp_based_filename) {
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
 
@@ -120,10 +122,8 @@ void capture_and_registration(int frames, std::string icp_based_filename, std::s
     auto icp_edge_based_registration = new ICPEdgeBasedRegistration(thetas);
 
     auto icp_result = icp_edge_based_registration->registration(clouds);
-    // auto ndt_result = ndt_edge_based_registration->registration(clouds);
 
     pcl::io::savePCDFileBinary("dataset/" + icp_based_filename + ".pcd", *icp_result);
-    // pcl::io::savePCDFileBinary("dataset/" + ndt_based_filename + ".pcd", *ndt_result);
 }
 
 void help() {
@@ -176,6 +176,8 @@ void help() {
 }
 
 int main(int argc, char *argv[]) try {
+    cv::namedWindow("Display Image");
+
     if (argc == 1) {
         help();        
 
@@ -215,13 +217,11 @@ int main(int argc, char *argv[]) try {
         viewer(name);
 
         return 0;
-    } else if (strcmp(argv[1], "--all") == 0 && argc == 5) {
+    } else if (strcmp(argv[1], "--all") == 0 && argc == 4) {
         int frames = atoi(argv[2]);
-        
         std::string icp_based_filename = argv[3];
-        std::string ndt_based_filename = argv[4];
 
-        capture_and_registration(frames, icp_based_filename, ndt_based_filename);
+        capture_and_registration(frames, icp_based_filename);
         
         return 0;
     } else {

@@ -43,6 +43,11 @@ public:
         rgb_point_cloud_pointer downsized_src(new rgb_point_cloud);
         rgb_point_cloud_pointer downsized_dst(new rgb_point_cloud);
 
+        icp.setMaximumIterations(100);
+        icp.setMaxCorrespondenceDistance(0.01);
+        icp.setTransformationEpsilon(1);
+        icp.setEuclideanFitnessEpsilon(1000);
+
         for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
             rgb_point_cloud_pointer aligned(new rgb_point_cloud);
 
