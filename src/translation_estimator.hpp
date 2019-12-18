@@ -13,10 +13,12 @@ enum EAxis {
 
 class TranslationEstimator {
 public:
-    Eigen::Translation3f estimate_translation(std::vector<std::pair<rgb_point, rgb_point>> kpt_correspondences, float3 rotation, int max_iterations=500) {
-        Eigen::AngleAxisf rotation_x(rotation.x, Eigen::Vector3f::UnitZ());
+    Eigen::Translation3f estimate_translation(std::vector<std::pair<rgb_point, rgb_point>> kpt_correspondences, float3 rotation, int max_iterations=1000) {
+        std::cout << "Rotation: " << rotation.x << " " << rotation.y << " " << rotation.z << std::endl;
+
+        Eigen::AngleAxisf rotation_x(rotation.z, Eigen::Vector3f::UnitX());
         Eigen::AngleAxisf rotation_y(-rotation.y, Eigen::Vector3f::UnitY());
-        Eigen::AngleAxisf rotation_z(rotation.z, Eigen::Vector3f::UnitX());
+        Eigen::AngleAxisf rotation_z(-rotation.x, Eigen::Vector3f::UnitZ());
 
         std::vector<Eigen::Vector3f> ref_kpts;
         std::vector<Eigen::Vector3f> cmp_kpts;
@@ -29,16 +31,33 @@ public:
         auto translation_y = estimate_translation_single_axis(ref_kpts, cmp_kpts, rotation_x, rotation_y, rotation_z, max_iterations, EAxisY);
         auto translation_z = estimate_translation_single_axis(ref_kpts, cmp_kpts, rotation_x, rotation_y, rotation_z, max_iterations, EAxisZ);
 
-        auto translation = Eigen::Translation3f(translation_x.x(),translation_y.y(), translation_z.z());
+        auto translation = Eigen::Translation3f(translation_x.x(), translation_y.y(), translation_z.z());
+        auto rot = rotation_x * rotation_y * rotation_z;
+
+        float square_sum = 0.0;
+
+        for (size_t i = 0; i < cmp_kpts.size(); i++) {
+            Eigen::Vector3f pt = (translation * rot) * cmp_kpts[i];
+            Eigen::Vector3f ref_pt = ref_kpts[i];
+            float dx = (pt[0] - ref_pt[0]);
+            float dy = (pt[1] - ref_pt[1]);
+            float dz = (pt[2] - ref_pt[2]);
+            float square = dx * dx + dy * dy + dz * dz;
+            square_sum += square;
+        }
+
+        std::cout << "Square Sum: " << square_sum / (float)cmp_kpts.size() << std::endl;
+
         return translation;
     }
 
     Eigen::Translation3f estimate_translation_single_axis(std::vector<Eigen::Vector3f> ref_kpts, std::vector<Eigen::Vector3f> cmp_kpts, Eigen::AngleAxisf rotation_x, Eigen::AngleAxisf rotation_y, Eigen::AngleAxisf rotation_z, int max_iterations, EAxis axis) {
-        float magnitude = -1.0 * (max_iterations / 200.0);
+        float initial_magnitude = -0.001f * max_iterations / 2.0f;
+
         std::vector<Eigen::Translation3f> translations;
         for (int i = 0; i < max_iterations; i++) {
+            float magnitude = initial_magnitude + i * 0.001;
             translations.push_back(get_translation(magnitude, axis));
-            magnitude += 0.01;
         }
 
         std::vector<Eigen::Vector3f> translated;

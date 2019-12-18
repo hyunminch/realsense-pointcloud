@@ -63,7 +63,7 @@ std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs
     std::vector<std::vector<DMatch>> knn_matches;
     matcher->knnMatch(descriptors1, descriptors2, knn_matches, 2);
 
-    const float ratio_thresh = 0.3f;
+    const float ratio_thresh = 0.6f;
     std::vector<DMatch> good_matches;
     for (size_t i = 0; i < knn_matches.size(); i++) {
         if (knn_matches[i][0].distance < ratio_thresh * knn_matches[i][1].distance) {
@@ -80,26 +80,45 @@ std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs
 
     // Extract location of good matches
     std::vector<Point2f> points1, points2;
+    std::vector<Point2f> rpoints1, rpoints2;
 
     for (size_t i = 0; i < good_matches.size(); i++) {
         auto point_1 = keypoints_1[good_matches[i].queryIdx].pt;
         auto point_2 = keypoints_2[good_matches[i].trainIdx].pt;
 
-        std::cout << point_1.x << " " << point_1.y << std::endl;
-        std::cout << point_2.x << " " << point_2.y << std::endl;
-
         points1.push_back(keypoints_1[good_matches[i].queryIdx].pt);
         points2.push_back(keypoints_2[good_matches[i].trainIdx].pt);
     }
 
+    std::vector<Point2f> cmp;
     // the following does not contribute to the end result
     Mat h = findHomography(points1, points2, RANSAC);
-    Mat img1_reg_result;
-    warpPerspective(input_1, img1_reg_result, h, input_2.size());
-    imwrite("reg.jpg", img1_reg_result);
-    imwrite("dst.jpg", input_2);
 
-    return std::make_pair(points1, points2);
+    perspectiveTransform(points1, cmp, h);
+
+    for (int i = 0; i < (int)points1.size(); i++) {
+        auto c = cmp[i];
+        auto p2 = points2[i];
+
+        float dx = p2.x - c.x;
+        float dy = p2.y - c.y;
+
+        float d = dx * dx + dy * dy;
+
+        if (d <= 10) {
+            rpoints1.push_back(points1[i]);
+            rpoints2.push_back(points2[i]);
+        } else {
+            std::cout << "Rejected!" << std::endl;
+        }
+
+        std::cout << "C: " << c << std::endl;
+        std::cout << "P2: " << p2 << std::endl;
+    }
+//    imwrite("reg.jpg", img1_reg_result);
+//    imwrite("dst.jpg", input_2);
+
+    return std::make_pair(rpoints1, rpoints2);
 }
 
 std::tuple<int, int, int> rgb_texture_new(rs2::video_frame texture, rs2::texture_coordinate texture_coords) {
@@ -147,13 +166,16 @@ rgb_point_cloud_pointer convert_to_pcl_new(const rs2::points& points, const rs2:
         cloud->points[i].y = vertices[i].y;
         cloud->points[i].z = vertices[i].z;
 
+        if (cloud->points[i].z < 0.2 || cloud->points[i].z > 5.0)
+            cloud->points[i].z = 0.0;
+
         // Obtain color texture for specific point
         _rgb_texture = rgb_texture(color, texture_coordinates[i]);
 
         // Mapping Color (BGR due to Camera Model)
-        cloud->points[i].r = get<2>(_rgb_texture); // Reference tuple<2>
+        cloud->points[i].r = get<0>(_rgb_texture); // Reference tuple<2>
         cloud->points[i].g = get<1>(_rgb_texture); // Reference tuple<1>
-        cloud->points[i].b = get<0>(_rgb_texture); // Reference tuple<0>
+        cloud->points[i].b = get<2>(_rgb_texture); // Reference tuple<0>
     }
 
     return cloud;
@@ -212,31 +234,32 @@ rgb_point_cloud_pointer filter_pcl_new(rgb_point_cloud_pointer cloud) {
     // 1. Applies pass through filter
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
-    pass.filter(*cloud_pass_through);
     pass.setFilterLimits(0.2, 2.5);
+    pass.filter(*cloud_pass_through);
 
     // 2. Applies sor filter
-    pcl::StatisticalOutlierRemoval<rgb_point> sor;
-    sor.setInputCloud(cloud_pass_through);
-    sor.setMeanK(50);
-    sor.setStddevMulThresh(1.5);
-    sor.filter(*cloud_sor);
+//    pcl::StatisticalOutlierRemoval<rgb_point> sor;
+//    sor.setInputCloud(cloud_pass_through);
+//    sor.setMeanK(50);
+//    sor.setStddevMulThresh(1.5);
+//    sor.filter(*cloud_sor);
 
-    return cloud_voxel_grid;
+    return cloud_pass_through;
 }
 
-void make_thetas_relative(std::vector<float3> thetas) {
-    float3 init_theta = thetas[0] * -1.0;
-    for (int i = 0; i < thetas.size(); i++)
-        thetas[i].add(init_theta.x, init_theta.y, init_theta.z);
+void make_thetas_relative(std::vector<float3>& thetas) {
+//    float3 init_theta = thetas[0] * -1.0;
+//    for (int i = 0; i < thetas.size(); i++)
+//        thetas[i].add(init_theta.x, init_theta.y, init_theta.z);
 
-    for (int i = 1; i < thetas.size(); i++) {
-        float3 prev_theta = thetas[0] * -1.0;
+    for (int i = (int)thetas.size() - 1; i >= 0; i--) {
+        float3 prev_theta = thetas[i - 1] * -1.0;
         thetas[i].add(prev_theta.x, prev_theta.y, prev_theta.z);
     }
 }
 
-std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(rs2::pipeline pipe, int nr_frames) {
+rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
+//std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(rs2::pipeline pipe, int nr_frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
     std::vector<rs2::frameset> framesets;
     std::vector<rs2::video_frame> color_frames;
@@ -273,7 +296,7 @@ std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(
         float3 theta = algo.get_theta();
 
         auto now = std::chrono::system_clock::now();
-        if ((now - time).count() < 2000000000)
+        if ((now - time).count() < 3000000000)
             continue;
 
         time = now;
@@ -285,6 +308,10 @@ std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(
     }
 
     std::cout << "[RS]  Converting framesets to point clouds..." << std::endl << std::flush;
+
+    rs2::spatial_filter spatial_filter;
+
+    spatial_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.55f);
 
     for (auto frameset: framesets) {
         auto color = frameset.get_color_frame();
@@ -298,10 +325,12 @@ std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(
         pc.map_to(color);
 
         auto depth = frameset.get_depth_frame();
-        depth_frames.push_back(depth);
+        auto filtered_depth = spatial_filter.process(depth);
+        depth_frames.push_back(filtered_depth);
 
-        points = pc.calculate(depth);
+        points = pc.calculate(filtered_depth);
         auto pcl = convert_to_pcl_new(points, color);
+//        auto filtered = filter_pcl_new(pcl);
         clouds.push_back(pcl);
     }
 
@@ -313,6 +342,7 @@ std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(
     Eigen::Matrix4f init_transformation = (Eigen::Translation3f(0, 0, 0) * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitY())).matrix();
     result.push_back(std::make_pair(clouds[0], init_transformation));
     TranslationEstimator translation_estimator;
+
     for (int i = 1; i < (int)framesets.size(); i++) {
         auto color_0 = color_frames[i - 1];
         auto color_1 = color_frames[i];
@@ -324,9 +354,6 @@ std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(
         auto cloud_0 = clouds[i - 1];
         auto cloud_1 = clouds[i];
 
-//        std::vector<rgb_point> cloud_points_0;
-//        std::vector<rgb_point> cloud_points_1;
-
         std::vector<std::pair<rgb_point, rgb_point>> kpt_correspondences;
 
         for (size_t pi = 0; pi < points_0.size(); pi++) {
@@ -335,24 +362,74 @@ std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(
 
             auto cloud_point_0 = cloud_0->at((int)point_0.x, (int)point_0.y);
             auto cloud_point_1 = cloud_1->at((int)point_1.x, (int)point_1.y);
-            std::cout << cloud_point_0 << " " << cloud_point_1 << std::endl;
 
-//            cloud_points_0.push_back(cloud_point_0);
-//            cloud_points_1.push_back(cloud_point_1);
-            kpt_correspondences.push_back(std::make_pair(cloud_point_0, cloud_point_1));
+            if (!(cloud_point_0.z < 0.01 || cloud_point_1.z < 0.01)) {
+                kpt_correspondences.push_back(std::make_pair(cloud_point_0, cloud_point_1));
+            }
         }
 
         Eigen::Translation3f translation = translation_estimator.estimate_translation(kpt_correspondences, thetas[i]);
-        Eigen::AngleAxisf rotation_x(thetas[i].x, Eigen::Vector3f::UnitZ());
+        Eigen::AngleAxisf rotation_x(thetas[i].z, Eigen::Vector3f::UnitX());
         Eigen::AngleAxisf rotation_y(-thetas[i].y, Eigen::Vector3f::UnitY());
-        Eigen::AngleAxisf rotation_z(thetas[i].z, Eigen::Vector3f::UnitX());
+        Eigen::AngleAxisf rotation_z(-thetas[i].x, Eigen::Vector3f::UnitZ());
         Eigen::Matrix4f transformation = (translation * rotation_x * rotation_y * rotation_z).matrix();
+
+        std::cout << "Rotation X: " << rotation_x.angle() << std::endl;
+        std::cout << "Rotation Y: " << rotation_y.angle() << std::endl;
+        std::cout << "Rotation Z: " << rotation_z.angle() << std::endl;
+        std::cout << "Transformation: " << transformation << std::endl;
+        std::cout << "Translation: " << translation.x() << " " << translation.y() << " " << translation.z() << std::endl;
 
         result.push_back(std::make_pair(clouds[i], transformation));
     }
 
-    waitKey(0);
+    pcl::ApproximateVoxelGrid<rgb_point> approx_voxel_grid;
+    pcl::IterativeClosestPoint<rgb_point, rgb_point> icp;
+    pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
 
+    rgb_point_cloud_pointer target_cloud = clouds[0];
+
+    // these cloud pointers are to be used as temporary variables
+    rgb_point_cloud_pointer downsized_src(new rgb_point_cloud);
+    rgb_point_cloud_pointer downsized_dst(new rgb_point_cloud);
+
+    approx_voxel_grid.setLeafSize(0.005, 0.005, 0.005);
+
+    icp.setMaximumIterations(300);
+    icp.setMaxCorrespondenceDistance(0.15);
+    icp.setTransformationEpsilon(0.5);
+    icp.setEuclideanFitnessEpsilon(0.2);
+    icp.setRANSACOutlierRejectionThreshold(0.15);
+
+    Eigen::Matrix4f init_guess = (Eigen::Translation3f(0, 0, 0) * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitY())).matrix();
+    std::cout << init_guess << std::endl;
+
+    for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
+        rgb_point_cloud_pointer aligned(new rgb_point_cloud);
+        rgb_point_cloud_pointer temp(new rgb_point_cloud);
+
+        approx_voxel_grid.setInputCloud(clouds[cloud_idx]);
+        approx_voxel_grid.filter(*downsized_src);
+
+        init_guess = result[cloud_idx].second * init_guess;
+
+        std::cout << init_guess << std::endl;
+
+        icp.setInputSource(clouds[cloud_idx]);
+        icp.setInputTarget(target_cloud);
+        icp.align(*aligned, init_guess);
+
+        if (icp.hasConverged()) {
+            rgb_point_cloud_pointer transformed(new rgb_point_cloud);
+            pcl::transformPointCloud(*clouds[cloud_idx], *transformed, icp.getFinalTransformation());
+            *target_cloud += *transformed;
+        }
+    }
+
+    return target_cloud;
+//
+//    waitKey(0);
+//
 //    return std::make_pair(clouds, thetas);
-    return result;
+//    return result;
 }

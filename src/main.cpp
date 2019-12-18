@@ -40,19 +40,31 @@ void capture(const std::string prefix, int frames) {
 
     pipe.start(cfg);
 
-    auto pairs = get_clouds_new(pipe, frames);
-    std::vector<rgb_point_cloud_pointer> clouds;
-    std::vector<Eigen::Matrix4f> transformations;
-    for (auto pair : pairs) {
-        clouds.push_back(pair.first);
-        transformations.push_back(pair.second);
+    auto point_cloud = get_clouds_new(pipe, frames);
+    pipe.stop();
+
+    // Create a simple OpenGL window for rendering:
+    window app(1280, 720, "RealSense PCL PointCloud Example");
+    // Construct an object to manage view state
+    state app_state;
+    // register callbacks to allow manipulation of the pointcloud
+    register_glfw_callbacks(app, app_state);
+
+    while (app) {
+        draw_pointcloud(app, app_state, {point_cloud});
     }
+
+//    std::vector<rgb_point_cloud_pointer> clouds;
+//    std::vector<Eigen::Matrix4f> transformations;
+//    for (auto pair : pairs) {
+//        clouds.push_back(pair.first);
+//        transformations.push_back(pair.second);
+//    }
 //    auto clouds = pair.first;
 //    auto thetas = pair.second;
-    for (int frame = 0; frame < frames; frame++)
-        pcl::io::savePCDFileBinary("dataset/" + prefix + "-" + std::to_string(frame) + ".pcd", *clouds[frame]);
+//    for (int frame = 0; frame < frames; frame++)
+//        pcl::io::savePCDFileBinary("dataset/" + prefix + "-" + std::to_string(frame) + ".pcd", *clouds[frame]);
 
-    pipe.stop();
 }
 
 void edges(const std::string filename) {
