@@ -4,6 +4,9 @@
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/filters/passthrough.h>
+#include <pcl/registration/transformation_estimation.h>
+#include <pcl/registration/transformation_estimation_3point.h>
+#include <pcl/registration/transformation_estimation_dual_quaternion.h>
 #include <opencv2/opencv.hpp>
 #include <opencv2/xfeatures2d.hpp>
 #include <opencv2/features2d.hpp>
@@ -18,6 +21,7 @@
 #include "utils.hpp"
 #include "rotation_estimator.hpp"
 #include "translation_estimator.hpp"
+#include "blur_filter.hpp"
 
 using namespace cv;
 using namespace cv::xfeatures2d;
@@ -63,8 +67,9 @@ std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs
     std::vector<std::vector<DMatch>> knn_matches;
     matcher->knnMatch(descriptors1, descriptors2, knn_matches, 2);
 
-    const float ratio_thresh = 0.6f;
+    const float ratio_thresh = 0.75f;
     std::vector<DMatch> good_matches;
+    std::vector<DMatch> best_matches;
     for (size_t i = 0; i < knn_matches.size(); i++) {
         if (knn_matches[i][0].distance < ratio_thresh * knn_matches[i][1].distance) {
             good_matches.push_back(knn_matches[i][0]);
@@ -72,11 +77,7 @@ std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs
     }
 
     std::sort(good_matches.begin(), good_matches.end());
-
-    // Draw top matches
-    Mat im_matches;
-    drawMatches(input_1, keypoints_1, input_2, keypoints_2, good_matches, im_matches);
-    imwrite("matches.jpg", im_matches);
+    good_matches.erase(good_matches.begin () + (int)good_matches.size() / 2, good_matches.end());
 
     // Extract location of good matches
     std::vector<Point2f> points1, points2;
@@ -106,17 +107,24 @@ std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs
         float d = dx * dx + dy * dy;
 
         if (d <= 10) {
+            std::cout << "C: " << c << std::endl;
+            std::cout << "P2: " << p2 << std::endl;
+
             rpoints1.push_back(points1[i]);
             rpoints2.push_back(points2[i]);
+            best_matches.push_back(good_matches[i]);
         } else {
             std::cout << "Rejected!" << std::endl;
         }
 
-        std::cout << "C: " << c << std::endl;
-        std::cout << "P2: " << p2 << std::endl;
     }
 //    imwrite("reg.jpg", img1_reg_result);
 //    imwrite("dst.jpg", input_2);
+
+    // Draw top matches
+    Mat im_matches;
+    drawMatches(input_1, keypoints_1, input_2, keypoints_2, best_matches, im_matches);
+    imwrite("matches.jpg", im_matches);
 
     return std::make_pair(rpoints1, rpoints2);
 }
@@ -296,7 +304,7 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
         float3 theta = algo.get_theta();
 
         auto now = std::chrono::system_clock::now();
-        if ((now - time).count() < 3000000000)
+        if ((now - time).count() < 6000000000)
             continue;
 
         time = now;
@@ -311,7 +319,7 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
 
     rs2::spatial_filter spatial_filter;
 
-    spatial_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.55f);
+    spatial_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.80f);
 
     for (auto frameset: framesets) {
         auto color = frameset.get_color_frame();
@@ -362,11 +370,61 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
 
             auto cloud_point_0 = cloud_0->at((int)point_0.x, (int)point_0.y);
             auto cloud_point_1 = cloud_1->at((int)point_1.x, (int)point_1.y);
+            std::cout << cloud_point_0 << " " << cloud_point_1 << std::endl;
 
             if (!(cloud_point_0.z < 0.01 || cloud_point_1.z < 0.01)) {
                 kpt_correspondences.push_back(std::make_pair(cloud_point_0, cloud_point_1));
             }
         }
+
+        rgb_point_cloud_pointer in(new rgb_point_cloud);
+        rgb_point_cloud_pointer out(new rgb_point_cloud);
+
+        in->width = (int)kpt_correspondences.size();
+//        in->width = 3;
+        in->height = 1;
+        in->is_dense = false;
+        in->resize(in->width * in->height);
+
+        out->width = (int)kpt_correspondences.size();
+//        out->width = 3;
+        out->height = 1;
+        out->is_dense = false;
+        out->resize(out->width * out->height);
+
+        for (size_t pi = 0; pi < kpt_correspondences.size(); pi++) {
+//        for (size_t pi = 0; pi < 3; pi++) {
+
+            auto pair = kpt_correspondences[pi];
+//            auto point_0 = points_0[pi];
+//            auto point_1 = points_1[pi];
+            auto cloud_point_0 = pair.first;
+            auto cloud_point_1 = pair.second;
+
+            in->points[pi].x = cloud_point_0.x;
+            in->points[pi].y = cloud_point_0.y;
+            in->points[pi].z = cloud_point_0.z;
+
+            out->points[pi].x = cloud_point_1.x;
+            out->points[pi].y = cloud_point_1.y;
+            out->points[pi].z = cloud_point_1.z;
+        }
+
+//        pcl::registration::TransformationEstimation3Point<pcl::PointXYZRGB, pcl::PointXYZRGB> threepoint;
+//        Eigen::Matrix4f transformation2;
+//        threepoint.estimateRigidTransformation(*out, *in, transformation2);
+
+//        pcl::registration::TransformationEstimationSVD<pcl::PointXYZRGB,pcl::PointXYZRGB> TESVD;
+//        pcl::registration::TransformationEstimationSVD<pcl::PointXYZRGB,pcl::PointXYZRGB>::Matrix4 transformation2;
+//        TESVD.estimateRigidTransformation (*out,*in,transformation2);
+
+//        pcl::registration::TransformationEstimationLM<pcl::PointXYZRGB, pcl::PointXYZRGB> lm;
+//        pcl::registration::TransformationEstimationLM<pcl::PointXYZRGB,pcl::PointXYZRGB>::Matrix4 transformation2;
+//        lm.estimateRigidTransformation (*out,*in,transformation2);
+
+        pcl::registration::TransformationEstimationDualQuaternion<pcl::PointXYZRGB, pcl::PointXYZRGB> dq;
+        pcl::registration::TransformationEstimationDualQuaternion<pcl::PointXYZRGB,pcl::PointXYZRGB>::Matrix4 transformation2;
+        dq.estimateRigidTransformation (*out,*in,transformation2);
 
         Eigen::Translation3f translation = translation_estimator.estimate_translation(kpt_correspondences, thetas[i]);
         Eigen::AngleAxisf rotation_x(thetas[i].z, Eigen::Vector3f::UnitX());
@@ -380,7 +438,7 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
         std::cout << "Transformation: " << transformation << std::endl;
         std::cout << "Translation: " << translation.x() << " " << translation.y() << " " << translation.z() << std::endl;
 
-        result.push_back(std::make_pair(clouds[i], transformation));
+        result.push_back(std::make_pair(clouds[i], transformation2));
     }
 
     pcl::ApproximateVoxelGrid<rgb_point> approx_voxel_grid;
@@ -396,13 +454,16 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
     approx_voxel_grid.setLeafSize(0.005, 0.005, 0.005);
 
     icp.setMaximumIterations(300);
-    icp.setMaxCorrespondenceDistance(0.15);
-    icp.setTransformationEpsilon(0.5);
-    icp.setEuclideanFitnessEpsilon(0.2);
-    icp.setRANSACOutlierRejectionThreshold(0.15);
+    icp.setMaxCorrespondenceDistance(0.01);
+    icp.setTransformationEpsilon(1e-5);
+    icp.setEuclideanFitnessEpsilon(0.01);
+    icp.setRANSACOutlierRejectionThreshold(0.01);
 
     Eigen::Matrix4f init_guess = (Eigen::Translation3f(0, 0, 0) * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitY())).matrix();
     std::cout << init_guess << std::endl;
+
+    BlurFilter blur_filter;
+    blur_filter.filter(target_cloud);
 
     for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
         rgb_point_cloud_pointer aligned(new rgb_point_cloud);
@@ -413,7 +474,12 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
 
         init_guess = result[cloud_idx].second * init_guess;
 
+        blur_filter.filter(clouds[cloud_idx]);
+//        pcl::transformPointCloud(*clouds[cloud_idx], *temp, init_guess);
+
         std::cout << init_guess << std::endl;
+
+//        *target_cloud += *temp;
 
         icp.setInputSource(clouds[cloud_idx]);
         icp.setInputTarget(target_cloud);
@@ -427,9 +493,4 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
     }
 
     return target_cloud;
-//
-//    waitKey(0);
-//
-//    return std::make_pair(clouds, thetas);
-//    return result;
 }

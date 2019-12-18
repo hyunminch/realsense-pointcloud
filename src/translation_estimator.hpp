@@ -64,8 +64,11 @@ public:
         std::vector<float> squares;
         for (auto translation : translations) {
             translated.clear();
+
+            auto transformation = translation * rotation_x * rotation_y * rotation_z;
+
             for (auto cmp_kpt : cmp_kpts)
-                translated.push_back((translation * rotation_x * rotation_y * rotation_z) * cmp_kpt);
+                translated.push_back(transformation * cmp_kpt);
 
             float square_sum = 0;
             assert(translated.size() == ref_kpts.size());
@@ -73,6 +76,7 @@ public:
                 float diff = translated[i][axis] - ref_kpts[i][axis];
                 square_sum += diff * diff;
             }
+
             squares.push_back(square_sum);
         }
 
