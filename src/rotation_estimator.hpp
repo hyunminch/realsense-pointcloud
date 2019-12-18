@@ -1,3 +1,6 @@
+#ifndef _ROTATION_ESTIMATOR_H
+#define _ROTATION_ESTIMATOR_H
+
 #include <librealsense2/rs.hpp>
 #include <mutex>
 #include <cstring>
@@ -75,3 +78,5 @@ public:
         return theta;
     }
 };
+
+#endif

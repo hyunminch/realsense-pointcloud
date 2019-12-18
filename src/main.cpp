@@ -26,7 +26,7 @@
 
 #include "utils.hpp"
 #include "types.hpp"
-// #include "capture.hpp"
+#include "capture.hpp"
 #include "capture_opencv.hpp"
 #include "visualizer.hpp"
 #include "incremental_icp.hpp"
@@ -40,7 +40,7 @@ void capture(const std::string prefix, int frames) {
 
     pipe.start(cfg);
 
-    auto pair = get_clouds(pipe, frames);
+    auto pair = get_clouds_new(pipe, frames);
     auto clouds = pair.first;
     auto thetas = pair.second;
     for (int frame = 0; frame < frames; frame++)
