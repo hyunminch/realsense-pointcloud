@@ -1,6 +1,7 @@
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
-#include <opencv2/xfeatures2d/nonfree.hpp>
+#include <opencv2/xfeatures2d.hpp>
+#include <opencv2/features2d.hpp>
 
 #include <iostream>
 #include <vector>
@@ -13,14 +14,16 @@
 #include "rotation_estimator.hpp"
 
 using namespace cv;
+using namespace cv::xfeatures2d;
 
-void get_keypoints(int frame, rs2::video_frame color_frame) {
-    cv::xfeatures2d::SiftFeatureDetector detector;
-    Mat input(Size(1280, 720), CV_8UC3, (void*)color_frame.get_data(), Mat::AUTO_STEP);
+std::pair<std::vector<cv::KeyPoint>, Mat> get_keypoints(int frame, Mat input) {
+    cv::Ptr<cv::xfeatures2d::SiftFeatureDetector> detector = cv::xfeatures2d::SiftFeatureDetector::create();
     Mat input_converted(input.size(), CV_8UC1);
     cv::cvtColor(input, input_converted, cv::COLOR_BGR2GRAY);
     std::vector<cv::KeyPoint> keypoints;
-    detector.detect(input, keypoints);
+    Mat descriptors;
+
+    detector->detectAndCompute(input, noArray(), keypoints, descriptors);
 
     // Add results to image and save.
     cv::Mat output;
@@ -30,48 +33,55 @@ void get_keypoints(int frame, rs2::video_frame color_frame) {
     namedWindow(corners_window);
     imshow(corners_window, output);
 
-    /*
+    return std::make_pair(keypoints, descriptors);
+}
 
-    int block_size = 2;
-    int aperture_size = 3;
-    double k = 0.04;
-    
-    Mat color_src(Size(1280, 720), CV_8UC3, (void*)color_frame.get_data(), Mat::AUTO_STEP);
-    Mat color_src_converted(color_src.size(), CV_8UC1);
+void get_keypoints_twoframes(rs2::video_frame color_frame1, rs2::video_frame color_frame2) {
+    Mat input1(Size(1280, 720), CV_8UC3, (void*)color_frame1.get_data(), Mat::AUTO_STEP);
+    Mat input2(Size(1280, 720), CV_8UC3, (void*)color_frame2.get_data(), Mat::AUTO_STEP);
 
-    cv::cvtColor(color_src, color_src_converted, cv::COLOR_BGR2GRAY);
-//    color_src.convertTo(color_src_converted, CV_32FC1, 1 / 255.0);
+    auto result1 = get_keypoints(0, input1);
+    auto result2 = get_keypoints(1, input2);
 
-    std::cout << CV_8UC3 << " " << color_src_converted.type() << " " << CV_32FC1 << std::endl;
+    auto keypoints1 = result1.first;
+    auto keypoints2 = result2.first;
+    auto descriptors1 = result1.second;
+    auto descriptors2 = result2.second;
 
-    Mat dst = Mat::zeros(color_src.size(), CV_8UC1);
+    // Match features.
+//    std::vector<DMatch> matches;
+//    Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create("BruteForce-Hamming");
+//    matcher->match(keypoints1, keypoints2, matches, Mat());
 
-    std::cout << (color_src_converted.type() == CV_8UC1) << std::endl;
-    cornerHarris(color_src_converted, dst, block_size, aperture_size, k);
+    Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+    std::vector< std::vector<DMatch>> knn_matches;
+    matcher->knnMatch(descriptors1, descriptors2, knn_matches, 2);
 
-    Mat dst_norm, dst_norm_scaled;
-    normalize(dst, dst_norm, 0, 255, NORM_MINMAX, CV_8UC1, Mat());
-    convertScaleAbs(dst_norm, dst_norm_scaled);
-
-    const char* corners_window = ("Corner " + std::to_string(frame)).c_str();
-
-    namedWindow(corners_window);
-
-    int thresh = 200;
-
-    for( int i = 0; i < dst_norm.rows ; i++ )
+    const float ratio_thresh = 0.75f;
+    std::vector<DMatch> good_matches;
+    for (size_t i = 0; i < knn_matches.size(); i++)
     {
-        for( int j = 0; j < dst_norm.cols; j++ )
+        if (knn_matches[i][0].distance < ratio_thresh * knn_matches[i][1].distance)
         {
-            if( (int) dst_norm.at<float>(i,j) > thresh )
-            {
-                circle( dst_norm_scaled, Point(j,i), 5,  Scalar(0), 2, 8, 0 );
-            }
+            good_matches.push_back(knn_matches[i][0]);
         }
     }
 
-    imshow(corners_window, dst_norm_scaled);
-     */
+    std::sort(good_matches.begin(), good_matches.end());
+    good_matches.erase(good_matches.begin() + good_matches.size() / 2, good_matches.end());
+
+    // Draw top matches
+    Mat imMatches;
+    drawMatches(input1, keypoints1, input2, keypoints2, good_matches, imMatches);
+    imwrite("matches.jpg", imMatches);
+
+    // Extract location of good matches
+    std::vector<Point2f> points1, points2;
+
+//    for (size_t i = 0; i < matches.size(); i++) {
+//        points1.push_back(keypoints1[matches[i].data()->queryIdx].pt);
+//        points2.push_back(keypoints2[matches[i].data()->trainIdx].pt);
+//    }
 }
 
 std::tuple<int, int, int> rgb_texture(rs2::video_frame texture, rs2::texture_coordinate texture_coords) {
@@ -163,6 +173,7 @@ rgb_point_cloud_pointer filter_pcl(rgb_point_cloud_pointer cloud) {
 std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(rs2::pipeline pipe, int nr_frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
     std::vector<rs2::frameset> framesets;
+    std::vector<rs2::video_frame> color_frames;
     std::vector<float3> thetas;
 
     rs2::pointcloud pc;
@@ -216,7 +227,8 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(
         if (!color)
             color = frameset.get_infrared_frame();
 
-        get_keypoints(frame++, color);
+//        get_keypoints(frame++, color);
+        color_frames.push_back(color);
 
         pc.map_to(color);
 
@@ -225,6 +237,8 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds(
         auto pcl = convert_to_pcl(points, color);
         clouds.push_back(pcl);
     }
+
+    get_keypoints_twoframes(color_frames[0], color_frames[1]);
 
     waitKey(0);
 
