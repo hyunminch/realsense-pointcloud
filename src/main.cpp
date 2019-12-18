@@ -40,9 +40,15 @@ void capture(const std::string prefix, int frames) {
 
     pipe.start(cfg);
 
-    auto pair = get_clouds_new(pipe, frames);
-    auto clouds = pair.first;
-    auto thetas = pair.second;
+    auto pairs = get_clouds_new(pipe, frames);
+    std::vector<rgb_point_cloud_pointer> clouds;
+    std::vector<Eigen::Matrix4f> transformations;
+    for (auto pair : pairs) {
+        clouds.push_back(pair.first);
+        transformations.push_back(pair.second);
+    }
+//    auto clouds = pair.first;
+//    auto thetas = pair.second;
     for (int frame = 0; frame < frames; frame++)
         pcl::io::savePCDFileBinary("dataset/" + prefix + "-" + std::to_string(frame) + ".pcd", *clouds[frame]);
 

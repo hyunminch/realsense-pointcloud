@@ -17,9 +17,15 @@
 #include "types.hpp"
 #include "utils.hpp"
 #include "rotation_estimator.hpp"
+#include "translation_estimator.hpp"
 
 using namespace cv;
 using namespace cv::xfeatures2d;
+
+struct RelativeCameraPose {
+    float3 theta;
+    Eigen::Translation3f translation;
+};
 
 std::pair<std::vector<cv::KeyPoint>, Mat> get_keypoints(int frame, Mat input) {
     cv::Ptr<cv::xfeatures2d::SiftFeatureDetector> detector = cv::xfeatures2d::SiftFeatureDetector::create();
@@ -219,7 +225,18 @@ rgb_point_cloud_pointer filter_pcl_new(rgb_point_cloud_pointer cloud) {
     return cloud_voxel_grid;
 }
 
-std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds_new(rs2::pipeline pipe, int nr_frames) {
+void make_thetas_relative(std::vector<float3> thetas) {
+    float3 init_theta = thetas[0] * -1.0;
+    for (int i = 0; i < thetas.size(); i++)
+        thetas[i].add(init_theta.x, init_theta.y, init_theta.z);
+
+    for (int i = 1; i < thetas.size(); i++) {
+        float3 prev_theta = thetas[0] * -1.0;
+        thetas[i].add(prev_theta.x, prev_theta.y, prev_theta.z);
+    }
+}
+
+std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(rs2::pipeline pipe, int nr_frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
     std::vector<rs2::frameset> framesets;
     std::vector<rs2::video_frame> color_frames;
@@ -288,19 +305,29 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds_
         clouds.push_back(pcl);
     }
 
-    for (int i = 0; i < (int)framesets.size() - 1; i++) {
-        auto color_0 = color_frames[i];
-        auto color_1 = color_frames[i + 1];
+    make_thetas_relative(thetas);
+
+    assert(thetas.size() == clouds.size());
+    std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> result;
+    // No transformation for the first cloud.
+    Eigen::Matrix4f init_transformation = (Eigen::Translation3f(0, 0, 0) * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitY())).matrix();
+    result.push_back(std::make_pair(clouds[0], init_transformation));
+    TranslationEstimator translation_estimator;
+    for (int i = 1; i < (int)framesets.size(); i++) {
+        auto color_0 = color_frames[i - 1];
+        auto color_1 = color_frames[i];
 
         auto corresponding_points = get_keypoints_twoframes(color_0, color_1);
         auto points_0 = corresponding_points.first;
         auto points_1 = corresponding_points.second;
 
-        auto cloud_0 = clouds[i];
-        auto cloud_1 = clouds[i + 1];
+        auto cloud_0 = clouds[i - 1];
+        auto cloud_1 = clouds[i];
 
-        std::vector<rgb_point> cloud_points_0;
-        std::vector<rgb_point> cloud_points_1;
+//        std::vector<rgb_point> cloud_points_0;
+//        std::vector<rgb_point> cloud_points_1;
+
+        std::vector<std::pair<rgb_point, rgb_point>> kpt_correspondences;
 
         for (size_t pi = 0; pi < points_0.size(); pi++) {
             auto point_0 = points_0[pi];
@@ -308,13 +335,24 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds_
 
             auto cloud_point_0 = cloud_0->at((int)point_0.x, (int)point_0.y);
             auto cloud_point_1 = cloud_1->at((int)point_1.x, (int)point_1.y);
+            std::cout << cloud_point_0 << " " << cloud_point_1 << std::endl;
 
-            cloud_points_0.push_back(cloud_point_0);
-            cloud_points_1.push_back(cloud_point_1);
+//            cloud_points_0.push_back(cloud_point_0);
+//            cloud_points_1.push_back(cloud_point_1);
+            kpt_correspondences.push_back(std::make_pair(cloud_point_0, cloud_point_1));
         }
+
+        Eigen::Translation3f translation = translation_estimator.estimate_translation(kpt_correspondences, thetas[i]);
+        Eigen::AngleAxisf rotation_x(thetas[i].x, Eigen::Vector3f::UnitZ());
+        Eigen::AngleAxisf rotation_y(-thetas[i].y, Eigen::Vector3f::UnitY());
+        Eigen::AngleAxisf rotation_z(thetas[i].z, Eigen::Vector3f::UnitX());
+        Eigen::Matrix4f transformation = (translation * rotation_x * rotation_y * rotation_z).matrix();
+
+        result.push_back(std::make_pair(clouds[i], transformation));
     }
 
     waitKey(0);
 
-    return std::make_pair(clouds, thetas);
+//    return std::make_pair(clouds, thetas);
+    return result;
 }

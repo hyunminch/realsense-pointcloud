@@ -13,7 +13,7 @@ enum EAxis {
 
 class TranslationEstimator {
 public:
-    Eigen::Translation3f estimate_translation(std::vector<std::pair<float3, float3>> kpt_correspondences, float3 rotation, int max_iterations=500) {
+    Eigen::Translation3f estimate_translation(std::vector<std::pair<rgb_point, rgb_point>> kpt_correspondences, float3 rotation, int max_iterations=500) {
         Eigen::AngleAxisf rotation_x(rotation.x, Eigen::Vector3f::UnitZ());
         Eigen::AngleAxisf rotation_y(-rotation.y, Eigen::Vector3f::UnitY());
         Eigen::AngleAxisf rotation_z(rotation.z, Eigen::Vector3f::UnitX());
