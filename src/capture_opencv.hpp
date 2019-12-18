@@ -314,8 +314,6 @@ std::pair<std::vector<rgb_point_cloud_pointer>, std::vector<float3>> get_clouds_
         }
     }
 
-    get_keypoints_twoframes(color_frames[0], color_frames[1]);
-
     waitKey(0);
 
     return std::make_pair(clouds, thetas);
