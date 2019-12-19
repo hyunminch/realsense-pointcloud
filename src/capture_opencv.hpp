@@ -1,6 +1,7 @@
 #include <librealsense2/rs.hpp>
 #include <pcl/filters/approximate_voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/filters/passthrough.h>
@@ -22,6 +23,7 @@
 #include "rotation_estimator.hpp"
 #include "translation_estimator.hpp"
 #include "blur_filter.hpp"
+#include "file_name_format.hpp"
 
 using namespace cv;
 using namespace cv::xfeatures2d;
@@ -51,7 +53,7 @@ std::pair<std::vector<cv::KeyPoint>, Mat> get_keypoints(int frame, Mat input) {
     return std::make_pair(keypoints, descriptors);
 }
 
-std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs2::video_frame color_frame1, rs2::video_frame color_frame2) {
+std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs2::video_frame color_frame1, rs2::video_frame color_frame2, const std::string prefix, int frame_no) {
     Mat input_1(Size(1280, 720), CV_8UC3, (void*)color_frame1.get_data(), Mat::AUTO_STEP);
     Mat input_2(Size(1280, 720), CV_8UC3, (void*)color_frame2.get_data(), Mat::AUTO_STEP);
 
@@ -124,7 +126,8 @@ std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs
     // Draw top matches
     Mat im_matches;
     drawMatches(input_1, keypoints_1, input_2, keypoints_2, best_matches, im_matches);
-    imwrite("matches.jpg", im_matches);
+    imwrite(fn_matches(prefix, frame_no), im_matches);
+//    imwrite("dataset/" + prefix + "-matches-" + std::to_string(frame_no) + ".jpg", im_matches);
 
     return std::make_pair(rpoints1, rpoints2);
 }
@@ -266,7 +269,7 @@ void make_thetas_relative(std::vector<float3>& thetas) {
     }
 }
 
-rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
+rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const std::string prefix="test") {
 //std::vector<std::pair<rgb_point_cloud_pointer, Eigen::Matrix4f>> get_clouds_new(rs2::pipeline pipe, int nr_frames) {
     std::vector<rgb_point_cloud_pointer> clouds;
     std::vector<rs2::frameset> framesets;
@@ -321,24 +324,26 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
 
     spatial_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.80f);
 
-    for (auto frameset: framesets) {
-        auto color = frameset.get_color_frame();
+    for (int i = 0; i < framesets.size(); i++) {
+        auto color = framesets[i].get_color_frame();
 
         // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
         if (!color)
-            color = frameset.get_infrared_frame();
+            color = framesets[i].get_infrared_frame();
 
         color_frames.push_back(color);
 
         pc.map_to(color);
 
-        auto depth = frameset.get_depth_frame();
+        auto depth = framesets[i].get_depth_frame();
         auto filtered_depth = spatial_filter.process(depth);
         depth_frames.push_back(filtered_depth);
 
         points = pc.calculate(filtered_depth);
         auto pcl = convert_to_pcl_new(points, color);
 //        auto filtered = filter_pcl_new(pcl);
+//        pcl::io::savePCDFile("dataset/" + prefix + "-raw-" + std::to_string(i) + ".pcd", *pcl);
+        pcl::io::savePCDFile(fn_raw(prefix, i), *pcl);
         clouds.push_back(pcl);
     }
 
@@ -355,7 +360,7 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
         auto color_0 = color_frames[i - 1];
         auto color_1 = color_frames[i];
 
-        auto corresponding_points = get_keypoints_twoframes(color_0, color_1);
+        auto corresponding_points = get_keypoints_twoframes(color_0, color_1, prefix, i);
         auto points_0 = corresponding_points.first;
         auto points_1 = corresponding_points.second;
 
@@ -410,6 +415,11 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
             out->points[pi].z = cloud_point_1.z;
         }
 
+//        pcl::io::savePCDFile("dataset/" + prefix + "-cor-kpts-" + std::to_string(i) + "-in.pcd", *in);
+//        pcl::io::savePCDFile("dataset/" + prefix + "-cor-kpts-" + std::to_string(i) + "-out.pcd", *out);
+        pcl::io::savePCDFile(fn_cor_kpts(prefix, i - 1, i), *in);
+        pcl::io::savePCDFile(fn_cor_kpts(prefix, i, i - 1), *out);
+
 //        pcl::registration::TransformationEstimation3Point<pcl::PointXYZRGB, pcl::PointXYZRGB> threepoint;
 //        Eigen::Matrix4f transformation2;
 //        threepoint.estimateRigidTransformation(*out, *in, transformation2);
@@ -425,6 +435,11 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
         pcl::registration::TransformationEstimationDualQuaternion<pcl::PointXYZRGB, pcl::PointXYZRGB> dq;
         pcl::registration::TransformationEstimationDualQuaternion<pcl::PointXYZRGB,pcl::PointXYZRGB>::Matrix4 transformation2;
         dq.estimateRigidTransformation (*out,*in,transformation2);
+        std::ofstream fstream;
+//        fstream.open("dataset/" + prefix + "-transmat-" + std::to_string(i) + "-to-" + std::to_string(i - 1) + ".txt");
+        fstream.open(fn_transmat(prefix, i, i - 1));
+        fstream << transformation2 << std::endl;
+        fstream.close();
 
         Eigen::Translation3f translation = translation_estimator.estimate_translation(kpt_correspondences, thetas[i]);
         Eigen::AngleAxisf rotation_x(thetas[i].z, Eigen::Vector3f::UnitX());
@@ -445,7 +460,8 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
     pcl::IterativeClosestPoint<rgb_point, rgb_point> icp;
     pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
 
-    rgb_point_cloud_pointer target_cloud = clouds[0];
+    int target_idx = 0;
+    rgb_point_cloud_pointer target_cloud = clouds[target_idx];
 
     // these cloud pointers are to be used as temporary variables
     rgb_point_cloud_pointer downsized_src(new rgb_point_cloud);
@@ -464,6 +480,8 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
 
     BlurFilter blur_filter;
     blur_filter.filter(target_cloud);
+    pcl::io::savePCDFile(fn_no_blur(prefix, target_idx), *target_cloud);
+//    pcl::io::savePCDFile("dataset/" + prefix + "-no-blur-" + std::to_string(target_idx) + ".pcd", *target_cloud);
 
     for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
         rgb_point_cloud_pointer aligned(new rgb_point_cloud);
@@ -473,11 +491,18 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
         approx_voxel_grid.filter(*downsized_src);
 
         init_guess = result[cloud_idx].second * init_guess;
+        std::cout << init_guess << std::endl;
+        std::ofstream fstream;
+//        fstream.open("dataset/" + prefix + "-guess-" + std::to_string(cloud_idx) + "-to-" + std::to_string(target_idx) + ".txt");
+        fstream.open(fn_guess(prefix, cloud_idx, target_idx));
+        fstream << init_guess << std::endl;
+        fstream.close();
 
         blur_filter.filter(clouds[cloud_idx]);
+        pcl::io::savePCDFile(fn_no_blur(prefix, cloud_idx), *clouds[cloud_idx]);
+//        pcl::io::savePCDFile("dataset/" + prefix + "-no-blur-" + std::to_string(cloud_idx) + ".pcd", *target_cloud);
 //        pcl::transformPointCloud(*clouds[cloud_idx], *temp, init_guess);
 
-        std::cout << init_guess << std::endl;
 
 //        *target_cloud += *temp;
 
@@ -489,6 +514,8 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames) {
             rgb_point_cloud_pointer transformed(new rgb_point_cloud);
             pcl::transformPointCloud(*clouds[cloud_idx], *transformed, icp.getFinalTransformation());
             *target_cloud += *transformed;
+            // print here
+            pcl::io::savePCDFile(fn_result_upto(prefix, cloud_idx), *target_cloud);
         }
     }
 

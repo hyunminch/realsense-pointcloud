@@ -40,8 +40,9 @@ void capture(const std::string prefix, int frames) {
 
     pipe.start(cfg);
 
-    auto point_cloud = get_clouds_new(pipe, frames);
+    auto point_cloud = get_clouds_new(pipe, frames, prefix);
     pipe.stop();
+    pcl::io::savePCDFile(fn_result(prefix), *point_cloud);
 
     // Create a simple OpenGL window for rendering:
     window app(1280, 720, "RealSense PCL PointCloud Example");
@@ -198,7 +199,7 @@ int main(int argc, char *argv[]) try {
     cv::namedWindow("Display Image");
 
     if (argc == 1) {
-        help();        
+        help();
 
         return EXIT_FAILURE;
     } else if (strcmp(argv[1], "--capture") == 0 && argc == 4) {
