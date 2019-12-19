@@ -57,7 +57,7 @@ std::pair<std::vector<cv::KeyPoint>, Mat> get_keypoints(int frame, Mat input) {
 std::pair<std::vector<Point2f>, std::vector<Point2f>> get_keypoints_twoframes(rs2::video_frame color_frame1, rs2::video_frame color_frame2, const std::string prefix, int frame_no) {
     Mat pinput_1(Size(1280, 720), CV_8UC3, (void*)color_frame1.get_data(), Mat::AUTO_STEP);
     Mat pinput_2(Size(1280, 720), CV_8UC3, (void*)color_frame2.get_data(), Mat::AUTO_STEP);
-    Rect roi(256, 1024, 144, 576);
+    Rect roi(256, 144, 768, 432);
 
     Mat input_1 = pinput_1(roi);
     Mat input_2 = pinput_2(roi);
