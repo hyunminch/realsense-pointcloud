@@ -24,6 +24,7 @@
 #include "translation_estimator.hpp"
 #include "blur_filter.hpp"
 #include "file_name_format.hpp"
+#include "edge_extractor.hpp"
 
 using namespace cv;
 using namespace cv::xfeatures2d;
@@ -177,7 +178,7 @@ rgb_point_cloud_pointer convert_to_pcl_new(const rs2::points& points, const rs2:
         cloud->points[i].y = vertices[i].y;
         cloud->points[i].z = vertices[i].z;
 
-        if (cloud->points[i].z < 0.2 || cloud->points[i].z > 5.0)
+        if (cloud->points[i].z < 0.2 || cloud->points[i].z > 1.5)
             cloud->points[i].z = 0.0;
 
         // Obtain color texture for specific point
@@ -375,30 +376,33 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
 
             auto cloud_point_0 = cloud_0->at((int)point_0.x, (int)point_0.y);
             auto cloud_point_1 = cloud_1->at((int)point_1.x, (int)point_1.y);
-            std::cout << cloud_point_0 << " " << cloud_point_1 << std::endl;
 
             if (!(cloud_point_0.z < 0.01 || cloud_point_1.z < 0.01)) {
                 kpt_correspondences.push_back(std::make_pair(cloud_point_0, cloud_point_1));
+                std::cout << cloud_point_0 << " " << cloud_point_1 << std::endl;
             }
         }
 
         rgb_point_cloud_pointer in(new rgb_point_cloud);
         rgb_point_cloud_pointer out(new rgb_point_cloud);
 
-        in->width = (int)kpt_correspondences.size();
-//        in->width = 3;
+//        int cor_size = 3;
+        int cor_size = (int)kpt_correspondences.size();
+
+//        in->width = (int)kpt_correspondences.size();
+        in->width = cor_size;
         in->height = 1;
         in->is_dense = false;
         in->resize(in->width * in->height);
 
-        out->width = (int)kpt_correspondences.size();
-//        out->width = 3;
+//        out->width = (int)kpt_correspondences.size();
+        out->width = cor_size;
         out->height = 1;
         out->is_dense = false;
         out->resize(out->width * out->height);
 
-        for (size_t pi = 0; pi < kpt_correspondences.size(); pi++) {
-//        for (size_t pi = 0; pi < 3; pi++) {
+//        for (size_t pi = 0; pi < kpt_correspondences.size(); pi++) {
+        for (size_t pi = 0; pi < cor_size; pi++) {
 
             auto pair = kpt_correspondences[pi];
 //            auto point_0 = points_0[pi];
@@ -441,6 +445,17 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
         fstream << transformation2 << std::endl;
         fstream.close();
 
+        for (size_t pi = 0; pi < cor_size; pi++) {
+            auto pair = kpt_correspondences[pi];
+            auto cloud_point_0 = pair.first;
+            auto cloud_point_1 = pair.second;
+
+            Eigen::Vector4f p1(cloud_point_1.x, cloud_point_1.y, cloud_point_1.z, 1);
+            Eigen::Vector4f mult = transformation2 * p1;
+            std::cout << "Mult: " << mult << std::endl;
+            std::cout << "P0: " << cloud_point_0 << std::endl;
+        }
+
         Eigen::Translation3f translation = translation_estimator.estimate_translation(kpt_correspondences, thetas[i]);
         Eigen::AngleAxisf rotation_x(thetas[i].z, Eigen::Vector3f::UnitX());
         Eigen::AngleAxisf rotation_y(-thetas[i].y, Eigen::Vector3f::UnitY());
@@ -461,7 +476,14 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
     pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
 
     int target_idx = 0;
-    rgb_point_cloud_pointer target_cloud = clouds[target_idx];
+    BlurFilter blur_filter;
+
+    for (int cloud_idx = 0; cloud_idx < (int)clouds.size(); cloud_idx++) {
+        blur_filter.filter(clouds[cloud_idx]);
+    }
+
+    rgb_point_cloud_pointer target_cloud = extract_edge_features(clouds[0]);
+    rgb_point_cloud_pointer global_cloud = clouds[0];
 
     // these cloud pointers are to be used as temporary variables
     rgb_point_cloud_pointer downsized_src(new rgb_point_cloud);
@@ -470,25 +492,21 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
     approx_voxel_grid.setLeafSize(0.005, 0.005, 0.005);
 
     icp.setMaximumIterations(300);
-    icp.setMaxCorrespondenceDistance(0.01);
-    icp.setTransformationEpsilon(1e-5);
-    icp.setEuclideanFitnessEpsilon(0.01);
-    icp.setRANSACOutlierRejectionThreshold(0.01);
+    icp.setMaxCorrespondenceDistance(0.05);
+    icp.setTransformationEpsilon(0.5);
+    icp.setEuclideanFitnessEpsilon(0.25);
+    icp.setRANSACOutlierRejectionThreshold(0.05);
 
     Eigen::Matrix4f init_guess = (Eigen::Translation3f(0, 0, 0) * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitY())).matrix();
     std::cout << init_guess << std::endl;
 
-    BlurFilter blur_filter;
-    blur_filter.filter(target_cloud);
     pcl::io::savePCDFile(fn_no_blur(prefix, target_idx), *target_cloud);
 //    pcl::io::savePCDFile("dataset/" + prefix + "-no-blur-" + std::to_string(target_idx) + ".pcd", *target_cloud);
 
     for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
         rgb_point_cloud_pointer aligned(new rgb_point_cloud);
+        rgb_point_cloud_pointer original_transformed(new rgb_point_cloud);
         rgb_point_cloud_pointer temp(new rgb_point_cloud);
-
-        approx_voxel_grid.setInputCloud(clouds[cloud_idx]);
-        approx_voxel_grid.filter(*downsized_src);
 
         init_guess = result[cloud_idx].second * init_guess;
         std::cout << init_guess << std::endl;
@@ -498,26 +516,27 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
         fstream << init_guess << std::endl;
         fstream.close();
 
-        blur_filter.filter(clouds[cloud_idx]);
         pcl::io::savePCDFile(fn_no_blur(prefix, cloud_idx), *clouds[cloud_idx]);
 //        pcl::io::savePCDFile("dataset/" + prefix + "-no-blur-" + std::to_string(cloud_idx) + ".pcd", *target_cloud);
 //        pcl::transformPointCloud(*clouds[cloud_idx], *temp, init_guess);
 
+        auto input_edges = extract_edge_features(clouds[cloud_idx]);
+        pcl::transformPointCloud(*input_edges, *input_edges, init_guess);
+        pcl::transformPointCloud(*clouds[cloud_idx], *original_transformed, init_guess);
 
-//        *target_cloud += *temp;
-
-        icp.setInputSource(clouds[cloud_idx]);
-        icp.setInputTarget(target_cloud);
-        icp.align(*aligned, init_guess);
+        icp.setInputSource(original_transformed);
+        icp.setInputTarget(global_cloud);
+        icp.align(*aligned);
 
         if (icp.hasConverged()) {
             rgb_point_cloud_pointer transformed(new rgb_point_cloud);
-            pcl::transformPointCloud(*clouds[cloud_idx], *transformed, icp.getFinalTransformation());
+            pcl::transformPointCloud(*input_edges, *transformed, icp.getFinalTransformation());
+            pcl::transformPointCloud(*original_transformed, *temp, icp.getFinalTransformation());
             *target_cloud += *transformed;
-            // print here
             pcl::io::savePCDFile(fn_result_upto(prefix, cloud_idx), *target_cloud);
+            *global_cloud += *temp;
         }
     }
 
-    return target_cloud;
+    return global_cloud;
 }

@@ -35,6 +35,8 @@ rgb_point_cloud_pointer extract_edge_features(rgb_point_cloud_pointer cloud) {
     pcl::copyPointCloud(*cloud, label_indices[3].indices, *high_curvature_edges);
     pcl::copyPointCloud(*cloud, label_indices[4].indices, *rgb_edges);
 
+//    return occluding_edges;
+
     return rgb_edges;
 }
 
