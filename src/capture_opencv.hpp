@@ -344,6 +344,8 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
         auto pcl = convert_to_pcl_new(points, color);
 //        auto filtered = filter_pcl_new(pcl);
 //        pcl::io::savePCDFile("dataset/" + prefix + "-raw-" + std::to_string(i) + ".pcd", *pcl);
+        BlurFilter blur_filter;
+        blur_filter.filter(pcl);
         pcl::io::savePCDFile(fn_raw(prefix, i), *pcl);
         clouds.push_back(pcl);
     }
@@ -476,11 +478,11 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
     pcl::registration::CorrespondenceRejectorTrimmed::Ptr cor_rej_trimmed(new pcl::registration::CorrespondenceRejectorTrimmed);
 
     int target_idx = 0;
-    BlurFilter blur_filter;
-
-    for (int cloud_idx = 0; cloud_idx < (int)clouds.size(); cloud_idx++) {
-        blur_filter.filter(clouds[cloud_idx]);
-    }
+//    BlurFilter blur_filter;
+//
+//    for (int cloud_idx = 0; cloud_idx < (int)clouds.size(); cloud_idx++) {
+//        blur_filter.filter(clouds[cloud_idx]);
+//    }
 
     rgb_point_cloud_pointer target_cloud = extract_edge_features(clouds[0]);
     rgb_point_cloud_pointer global_cloud = clouds[0];
@@ -500,7 +502,7 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
     Eigen::Matrix4f init_guess = (Eigen::Translation3f(0, 0, 0) * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitY())).matrix();
     std::cout << init_guess << std::endl;
 
-    pcl::io::savePCDFile(fn_no_blur(prefix, target_idx), *target_cloud);
+//    pcl::io::savePCDFile(fn_no_blur(prefix, target_idx), *target_cloud);
 //    pcl::io::savePCDFile("dataset/" + prefix + "-no-blur-" + std::to_string(target_idx) + ".pcd", *target_cloud);
 
     for (int cloud_idx = 1; cloud_idx < (int)clouds.size(); cloud_idx++) {
@@ -516,7 +518,7 @@ rgb_point_cloud_pointer get_clouds_new(rs2::pipeline pipe, int nr_frames, const 
         fstream << init_guess << std::endl;
         fstream.close();
 
-        pcl::io::savePCDFile(fn_no_blur(prefix, cloud_idx), *clouds[cloud_idx]);
+//        pcl::io::savePCDFile(fn_no_blur(prefix, cloud_idx), *clouds[cloud_idx]);
 //        pcl::io::savePCDFile("dataset/" + prefix + "-no-blur-" + std::to_string(cloud_idx) + ".pcd", *target_cloud);
 //        pcl::transformPointCloud(*clouds[cloud_idx], *temp, init_guess);
 
